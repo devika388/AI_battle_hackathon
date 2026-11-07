@@ -9,10 +9,12 @@ export interface NavigationItem {
 
 export function NavigationBar({
   brand = "FoodBridge",
+  tagline,
   items = [],
   actions,
 }: {
   brand?: string;
+  tagline?: string;
   items?: NavigationItem[];
   actions?: ReactNode;
 }) {
@@ -21,34 +23,51 @@ export function NavigationBar({
   return (
     <header className="relative z-20 border-b border-charcoal/8 bg-cream/95 backdrop-blur">
       <div className="mx-auto flex min-h-[4.5rem] max-w-7xl items-center justify-between gap-6 px-5 sm:px-8">
-        <Link
-          aria-label={`${brand} home`}
-          className="shrink-0 text-xl font-bold tracking-tight text-forest"
-          onClick={() => setMenuOpen(false)}
-          to="/"
-        >
-          {brand}<span className="text-[#829f7c]">.</span>
-        </Link>
+        <div className="flex shrink-0 flex-col items-start gap-0 sm:flex-row sm:items-center sm:gap-3">
+          <Link
+            aria-label={`${brand} home`}
+            className="text-xl font-bold tracking-tight text-forest"
+            onClick={() => setMenuOpen(false)}
+            to="/"
+          >
+            {brand}<span className="text-[#829f7c]">.</span>
+          </Link>
+          {tagline ? (
+            <span className="text-[0.52rem] font-semibold uppercase leading-4 tracking-[0.1em] text-slate-500 sm:border-l sm:border-charcoal/15 sm:pl-3 sm:text-[0.62rem] sm:tracking-[0.12em]">
+              {tagline}
+            </span>
+          ) : null}
+        </div>
 
-        <nav aria-label="Main navigation" className="hidden items-center gap-7 md:flex">
-          {items.map((item) => (
-            <NavLink
-              className={({ isActive }) =>
-                `text-sm font-medium ${isActive ? "text-forest" : "text-slate-600 hover:text-forest"}`
-              }
-              key={item.to}
-              to={item.to}
-            >
-              {item.label}
-            </NavLink>
-          ))}
+        <nav aria-label="Main navigation" className="hidden items-center gap-7 lg:flex">
+          {items.map((item) =>
+            item.to.startsWith("#") ? (
+              <a
+                className="text-sm font-medium text-slate-600 hover:text-forest"
+                href={item.to}
+                key={item.to}
+              >
+                {item.label}
+              </a>
+            ) : (
+              <NavLink
+                className={({ isActive }) =>
+                  `text-sm font-medium ${isActive ? "text-forest" : "text-slate-600 hover:text-forest"}`
+                }
+                key={item.to}
+                to={item.to}
+              >
+                {item.label}
+              </NavLink>
+            ),
+          )}
         </nav>
 
-        <div className="hidden items-center gap-3 md:flex">{actions}</div>
+        <div className="hidden items-center gap-3 lg:flex">{actions}</div>
         <button
           aria-expanded={menuOpen}
           aria-label={menuOpen ? "Close navigation menu" : "Open navigation menu"}
-          className="grid h-10 w-10 place-items-center rounded-xl text-forest hover:bg-forest/5 md:hidden"
+          className="grid h-10 w-10 place-items-center rounded-xl text-forest hover:bg-forest/5 lg:hidden"
           onClick={() => setMenuOpen((open) => !open)}
           type="button"
         >
@@ -81,21 +100,32 @@ export function NavigationBar({
       {menuOpen ? (
         <nav
           aria-label="Mobile navigation"
-          className="animate-rise-in border-t border-charcoal/8 bg-cream px-5 py-4 md:hidden"
+          className="animate-rise-in border-t border-charcoal/8 bg-cream px-5 py-4 lg:hidden"
         >
           <div className="mx-auto flex max-w-7xl flex-col gap-1">
-            {items.map((item) => (
-              <NavLink
-                className={({ isActive }) =>
-                  `rounded-xl px-3 py-3 text-sm font-medium ${isActive ? "bg-sage/25 text-forest" : "text-slate-600"}`
-                }
-                key={item.to}
-                onClick={() => setMenuOpen(false)}
-                to={item.to}
-              >
-                {item.label}
-              </NavLink>
-            ))}
+            {items.map((item) =>
+              item.to.startsWith("#") ? (
+                <a
+                  className="rounded-xl px-3 py-3 text-sm font-medium text-slate-600 hover:bg-sage/20 hover:text-forest"
+                  href={item.to}
+                  key={item.to}
+                  onClick={() => setMenuOpen(false)}
+                >
+                  {item.label}
+                </a>
+              ) : (
+                <NavLink
+                  className={({ isActive }) =>
+                    `rounded-xl px-3 py-3 text-sm font-medium ${isActive ? "bg-sage/25 text-forest" : "text-slate-600"}`
+                  }
+                  key={item.to}
+                  onClick={() => setMenuOpen(false)}
+                  to={item.to}
+                >
+                  {item.label}
+                </NavLink>
+              ),
+            )}
             {actions ? <div className="mt-3 border-t border-charcoal/10 pt-4">{actions}</div> : null}
           </div>
         </nav>
