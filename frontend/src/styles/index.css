@@ -1,17 +1,175 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
   font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "DM Sans", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+  color: #242b26;
+  background: #faf8f1;
+  font-optical-sizing: auto;
+  font-weight: 400;
+
+  --color-forest: #365c48;
+  --color-sage: #a8c3a0;
+  --color-cream: #faf8f1;
+  --color-blush: #f2d8d5;
+  --color-butter: #f6e8b5;
+  --color-lavender: #ded9f2;
+  --color-powder: #d9e9f0;
+  --color-white: #ffffff;
+  --color-charcoal: #242b26;
+  --color-muted: #707a72;
+  --color-line: rgba(36, 43, 38, 0.11);
+  --shadow-card: 0 4px 18px rgba(36, 43, 38, 0.05);
+  --shadow-soft: 0 12px 40px rgba(36, 43, 38, 0.07);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  scroll-behavior: smooth;
 }
 
 body {
   margin: 0;
-  min-width: 320px;
   min-height: 100vh;
+  background: var(--color-cream);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button,
+a,
+summary,
+input,
+select {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+a,
+summary {
+  transition:
+    color 180ms ease,
+    background-color 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease;
+}
+
+button:focus-visible,
+a:focus-visible,
+summary:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 3px solid rgba(168, 195, 160, 0.8);
+  outline-offset: 3px;
+}
+
+::selection {
+  color: var(--color-forest);
+  background: var(--color-sage);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-rise-in {
+  animation: rise-in 420ms ease-out both;
+}
+
+.ds-card {
+  border: 1px solid var(--color-line);
+  border-radius: 1.25rem;
+  background: var(--color-white);
+  box-shadow: var(--shadow-card);
+}
+
+.ds-label {
+  color: var(--color-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.ds-field {
+  width: 100%;
+  min-height: 2.85rem;
+  border: 1px solid rgba(36, 43, 38, 0.16);
+  border-radius: 0.8rem;
+  background: var(--color-white);
+  padding: 0.65rem 0.9rem;
+  color: var(--color-charcoal);
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.ds-field::placeholder {
+  color: #929a93;
+}
+
+.ds-field:hover {
+  border-color: rgba(54, 92, 72, 0.42);
+}
+
+.ds-field:focus {
+  border-color: var(--color-forest);
+  outline: 0;
+  box-shadow: 0 0 0 3px rgba(168, 195, 160, 0.28);
+}
+
+.ds-dialog {
+  width: min(32rem, calc(100vw - 2rem));
+  max-height: min(85vh, 48rem);
+  overflow: auto;
+  border: 1px solid var(--color-line);
+  border-radius: 1.5rem;
+  padding: 0;
+  color: var(--color-charcoal);
+  box-shadow: var(--shadow-soft);
+}
+
+.ds-dialog::backdrop {
+  background: rgba(25, 34, 28, 0.38);
+  backdrop-filter: blur(3px);
+}
+
+.ds-scrollbar {
+  scrollbar-color: #c6d1c5 transparent;
+  scrollbar-width: thin;
 }

@@ -29,6 +29,12 @@ The development command starts both applications:
 The frontend uses the Vite development proxy for `/api` requests. API settings
 are centralized in `frontend/src/config/api.ts`.
 
+The root page is the FoodBridge design-system preview. It presents the brand
+tokens and responsive component patterns before product pages are developed.
+Reusable UI components are exported from `frontend/src/components/ui`; visual
+tokens, field styles, motion, and reduced-motion behavior live in
+`frontend/src/styles/index.css` and `frontend/tailwind.config.js`.
+
 To build both workspaces:
 
 ```powershell
