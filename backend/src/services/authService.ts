@@ -61,7 +61,7 @@ export async function getAuthProfile(userId: string): Promise<AuthProfile | null
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, full_name, email, phone, role")
+    .select("id, full_name, email, phone, role, is_suspended")
     .eq("id", userId)
     .maybeSingle();
 
@@ -92,6 +92,7 @@ export async function getAuthProfile(userId: string): Promise<AuthProfile | null
     phone: data.phone,
     role: data.role,
     is_approved: isApproved,
+    is_suspended: data.is_suspended === true,
   };
 }
 

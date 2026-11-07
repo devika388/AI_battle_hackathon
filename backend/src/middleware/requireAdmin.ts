@@ -14,6 +14,9 @@ export const requireAdmin: RequestHandler = async (
     }
 
     const profile = await getAuthProfile(user.id);
+    if (profile?.is_suspended) {
+      throw new HttpError("This account is suspended.", 403);
+    }
     if (profile?.role !== "admin") {
       throw new HttpError("Administrator access is required.", 403);
     }

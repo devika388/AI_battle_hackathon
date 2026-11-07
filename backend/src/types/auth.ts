@@ -10,8 +10,9 @@ export interface AuthProfile {
   full_name: string | null;
   email: string | null;
   phone: string | null;
-  role: string;
+  role: AppRole;
   is_approved: boolean;
+  is_suspended: boolean;
 }
 
 export interface PendingApproval {

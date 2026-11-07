@@ -47,6 +47,9 @@ To run the compiled backend after building:
 npm run start:backend
 ```
 
+The backend API routes, payloads, access roles, and delivery-proof upload format
+are documented in [`backend/API.md`](./backend/API.md).
+
 ## Environment variables
 
 `.env.example` lists the application settings:
@@ -68,20 +71,31 @@ RLS and must only be available to the backend.
 
 ### Supabase authentication setup
 
-1. Copy `.env.example` to `.env`, then set `VITE_SUPABASE_ANON_KEY` to the
-   project's anon/publishable key and `SUPABASE_SERVICE_ROLE_KEY` to the
-   service-role key. Do not commit `.env`.
-2. Apply [`supabase/migrations/20261107193000_foodbridge_auth.sql`](./supabase/migrations/20261107193000_foodbridge_auth.sql)
+1. Copy `.env.example` to `.env`, then set `VITE_SUPABASE_URL` and
+   `SUPABASE_URL` to the project URL, `VITE_SUPABASE_ANON_KEY` to the
+   anon/publishable key, and `SUPABASE_SERVICE_ROLE_KEY` to the service-role
+   key. Keep the service-role key backend-only and never commit `.env`.
+2. Inspect the live database with the read-only
+   [`supabase/inspect_schema.sql`](./supabase/inspect_schema.sql) query before
+   applying policies. The query result should include actual policies and
+   bucket settings as well as schema. Do not share credentials or user records.
+3. Apply [`supabase/migrations/20261107193000_foodbridge_auth.sql`](./supabase/migrations/20261107193000_foodbridge_auth.sql)
    in the Supabase SQL editor. It does not create, drop, or alter the existing
    13 tables or their columns. It adds a service-role-only, serialized,
    idempotent profile completion function and enables RLS on `profiles`,
    `donor_profiles`, `ngo_profiles`, and `partner_profiles`. Restrictive
    policies prevent direct client profile writes/role changes and limit reads
-   to the owning account without deleting existing policies.
-3. In Supabase Authentication URL configuration, allow the app origin and the
+   to the owning account without deleting existing policies. SQL files in this
+   repository are not active until explicitly run in Supabase.
+4. Apply [`supabase/migrations/20261107210000_foodbridge_backend_security.sql`](./supabase/migrations/20261107210000_foodbridge_backend_security.sql)
+   after confirming the read-only inspection output. It adds suspension state,
+   backend-only transaction functions, and restrictive RLS/storage policies
+   without dropping existing tables or policies. No policy should be treated
+   as active until this migration has succeeded in Supabase.
+5. In Supabase Authentication URL configuration, allow the app origin and the
    `/auth/callback` and `/reset-password` redirect paths for local and deployed
    environments. Configure SMTP/email templates and enable email confirmation.
-4. Start the frontend and backend with `npm run dev`.
+6. Start the frontend and backend with `npm run dev`.
 
 The registration handler uses the inspected schema: `profiles.id` is the auth
 user UUID; contact details go in `profiles`; donor, NGO, and vehicle details go
