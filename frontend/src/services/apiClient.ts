@@ -11,13 +11,16 @@ export class ApiError extends Error {
   }
 }
 
-export async function getJson<T>(
+export async function requestJson<T>(
   path: string,
-  signal?: AbortSignal,
+  init: RequestInit = {},
 ): Promise<T> {
   const response = await fetch(`${apiConfig.baseUrl}${path}`, {
-    headers: { Accept: "application/json" },
-    signal,
+    ...init,
+    headers: {
+      Accept: "application/json",
+      ...Object.fromEntries(new Headers(init.headers).entries()),
+    },
   });
 
   if (!response.ok) {
@@ -36,4 +39,11 @@ export async function getJson<T>(
   }
 
   return (await response.json()) as T;
+}
+
+export function getJson<T>(
+  path: string,
+  signal?: AbortSignal,
+): Promise<T> {
+  return requestJson<T>(path, { signal });
 }

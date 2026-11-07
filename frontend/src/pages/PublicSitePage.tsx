@@ -1,11 +1,11 @@
 import { useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
 import { FoodRescueIllustration } from "../components/FoodRescueIllustration";
 import {
   Badge,
   Button,
   Card,
   InputField,
-  Modal,
   NavigationBar,
   SelectField,
   type SelectOption,
@@ -103,14 +103,8 @@ const journey = [
 ];
 
 export function PublicSitePage() {
-  const [loginOpen, setLoginOpen] = useState(false);
   const [interest, setInterest] = useState<Interest>("general");
   const [contactMessage, setContactMessage] = useState("");
-
-  const chooseInterest = (nextInterest: Interest) => {
-    setInterest(nextInterest);
-    setContactMessage("");
-  };
 
   const sendContactRequest = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -147,16 +141,18 @@ export function PublicSitePage() {
       <NavigationBar
         actions={
           <>
-            <Button onClick={() => setLoginOpen(true)} variant="ghost">
+            <Link
+              className="inline-flex min-h-10 items-center rounded-full px-4 text-sm font-semibold text-forest hover:bg-forest/5"
+              to="/login"
+            >
               Login
-            </Button>
-            <a
+            </Link>
+            <Link
               className="inline-flex min-h-11 items-center justify-center rounded-full bg-forest px-5 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-[#294b39] hover:shadow-md"
-              href="#contact"
-              onClick={() => chooseInterest("general")}
+              to="/register"
             >
               Get Started
-            </a>
+            </Link>
           </>
         }
         brand="FOODBRIDGE"
@@ -198,20 +194,18 @@ export function PublicSitePage() {
               it most. Together, we can turn food waste into meaningful impact.
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <a
+              <Link
                 className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-forest px-6 text-sm font-semibold text-white shadow-soft transition hover:-translate-y-0.5 hover:bg-[#294b39]"
-                href="#contact"
-                onClick={() => chooseInterest("donor")}
+                to="/register?role=donor"
               >
                 Donate Food <span aria-hidden="true">↗</span>
-              </a>
-              <a
+              </Link>
+              <Link
                 className="inline-flex min-h-12 items-center justify-center rounded-full border border-forest/20 bg-white/80 px-6 text-sm font-semibold text-forest transition hover:-translate-y-0.5 hover:border-forest/40 hover:bg-white"
-                href="#contact"
-                onClick={() => chooseInterest("ngo")}
+                to="/register?role=ngo"
               >
                 Join as an NGO
-              </a>
+              </Link>
             </div>
             <div className="mt-8 flex items-center gap-3 text-sm text-slate-500">
               <span className="flex -space-x-2" aria-hidden="true">
@@ -344,13 +338,12 @@ export function PublicSitePage() {
                   <p className="mt-3 flex-1 text-sm leading-7 text-slate-600">
                     {role.body}
                   </p>
-                  <a
+                  <Link
                     className="mt-7 inline-flex min-h-11 items-center gap-2 self-start rounded-full bg-white px-5 text-sm font-semibold text-forest transition hover:-translate-y-0.5 hover:shadow-card"
-                    href="#contact"
-                    onClick={() => chooseInterest(role.interest)}
+                    to={`/register?role=${role.interest}`}
                   >
                     {role.link} <span aria-hidden="true">↗</span>
-                  </a>
+                  </Link>
                 </article>
               ))}
             </div>
@@ -535,20 +528,18 @@ export function PublicSitePage() {
                     help with delivery, we’d love to hear what brings you here.
                   </p>
                   <div className="mt-8 flex flex-wrap gap-3">
-                    <a
+                    <Link
                       className="inline-flex min-h-11 items-center rounded-full bg-white px-5 text-sm font-semibold text-forest transition hover:-translate-y-0.5 hover:bg-cream"
-                      href="#contact-form"
-                      onClick={() => chooseInterest("donor")}
+                      to="/register?role=donor"
                     >
                       Donate food
-                    </a>
-                    <a
+                    </Link>
+                    <Link
                       className="inline-flex min-h-11 items-center rounded-full border border-white/35 px-5 text-sm font-semibold text-white transition hover:bg-white/10"
-                      href="#contact-form"
-                      onClick={() => chooseInterest("ngo")}
+                      to="/register?role=ngo"
                     >
                       Join the community
-                    </a>
+                    </Link>
                   </div>
                 </div>
               </div>
@@ -585,9 +576,10 @@ export function PublicSitePage() {
                       id="contact-interest"
                       label="I’m interested in"
                       name="interest"
-                      onChange={(event) =>
-                        setInterest(event.target.value as Interest)
-                      }
+                      onChange={(event) => {
+                        setInterest(event.target.value as Interest);
+                        setContactMessage("");
+                      }}
                       options={interestOptions}
                       value={interest}
                     />
@@ -655,45 +647,15 @@ export function PublicSitePage() {
                 {item.label}
               </a>
             ))}
-            <button
-              className="text-sm text-slate-600 hover:text-forest"
-              onClick={() => setLoginOpen(true)}
-              type="button"
-            >
+            <Link className="text-sm text-slate-600 hover:text-forest" to="/login">
               Login
-            </button>
+            </Link>
           </nav>
           <p className="border-t border-charcoal/8 pt-5 text-xs text-slate-400 md:col-span-2">
             FoodBridge · Good food deserves a second chance.
           </p>
         </div>
       </footer>
-
-      <Modal
-        actions={
-          <>
-            <Button onClick={() => setLoginOpen(false)} variant="secondary">
-              Close
-            </Button>
-            <a
-              className="inline-flex min-h-11 items-center justify-center rounded-[0.85rem] bg-forest px-5 text-sm font-semibold text-white hover:bg-[#294b39]"
-              href="#contact"
-              onClick={() => setLoginOpen(false)}
-            >
-              Ask about access
-            </a>
-          </>
-        }
-        onClose={() => setLoginOpen(false)}
-        open={loginOpen}
-        title="Welcome back"
-      >
-        <p className="text-sm leading-6 text-slate-600">
-          Account sign-in is not connected on this public website yet. If your
-          organization is interested in platform access, get in touch with the
-          FoodBridge team.
-        </p>
-      </Modal>
     </div>
   );
 }

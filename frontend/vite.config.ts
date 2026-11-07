@@ -8,6 +8,7 @@ export default defineConfig(({ mode }) => {
   const proxyPath = apiBase.endsWith("/") ? apiBase.slice(0, -1) : apiBase;
 
   return {
+    envDir: resolve(process.cwd(), ".."),
     plugins: [react()],
     server: {
       proxy: {

@@ -14,4 +14,6 @@ function readPort(value: string | undefined): number {
 export const env = {
   port: readPort(process.env.API_PORT),
   frontendOrigin: process.env.FRONTEND_ORIGIN ?? "http://localhost:5173",
+  supabaseUrl: process.env.SUPABASE_URL,
+  supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
 };
