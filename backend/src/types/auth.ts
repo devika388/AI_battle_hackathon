@@ -13,6 +13,8 @@ export interface AuthProfile {
   role: AppRole;
   is_approved: boolean;
   is_suspended: boolean;
+  verification_status?: "pending" | "approved" | "rejected" | null;
+  verification_notes?: string | null;
 }
 
 export interface PendingApproval {

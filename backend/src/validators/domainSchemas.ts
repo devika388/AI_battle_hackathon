@@ -9,6 +9,10 @@ const pageQuery = z.object({
 
 export const idParams = z.object({ id: uuid });
 export const userIdParams = z.object({ userId: uuid });
+export const verificationRejectionParams = z.object({
+  kind: z.enum(["ngos", "partners"]),
+  userId: uuid,
+});
 export const assignmentIdParams = z.object({ assignmentId: uuid });
 export const proofIdParams = z.object({ proofId: uuid });
 export const donationIdParams = z.object({ donationId: uuid });
@@ -71,8 +75,16 @@ export const deliveryStatusSchema = z.object({
   description: z.string().trim().max(500).optional(),
 });
 
+export const deliveryStageSchema = z.object({
+  stage: z.enum(["pickup_started", "picked_up", "in_transit", "arrived"]),
+});
+
 export const suspensionSchema = z.object({
   is_suspended: z.boolean(),
+});
+
+export const verificationRejectionSchema = z.object({
+  reason: z.string().trim().min(1).max(500),
 });
 
 export const rescueUpdateSchema = z.object({

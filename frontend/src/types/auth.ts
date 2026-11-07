@@ -14,6 +14,8 @@ export interface AuthProfile {
   phone: string | null;
   role: string;
   is_approved: boolean;
+  verification_status?: "pending" | "approved" | "rejected" | null;
+  verification_notes?: string | null;
 }
 
 export interface AuthProfileResponse {

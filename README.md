@@ -102,7 +102,10 @@ RLS and must only be available to the backend.
    to add the donor donation details and NGO matching preferences required by
    the dashboards. This migration adds columns and trusted transactional
    functions; it does not recreate or delete existing tables.
-7. Start the frontend and backend with `npm run dev`.
+7. Apply [`supabase/migrations/20261107234000_admin_delivery_dashboard.sql`](./supabase/migrations/20261107234000_admin_delivery_dashboard.sql)
+   to add review outcomes, delivery proof details, and persisted route
+   checkpoints for the partner/admin dashboards.
+8. Start the frontend and backend with `npm run dev`.
 
 The registration handler uses the inspected schema: `profiles.id` is the auth
 user UUID; contact details go in `profiles`; donor, NGO, and vehicle details go

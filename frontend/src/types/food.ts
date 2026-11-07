@@ -41,6 +41,7 @@ export interface DonationDetails extends Donation {
   delivery_proofs?: {
     id: string;
     notes: string | null;
+    receiver_name?: string | null;
     delivered_at: string;
   }[];
   matches?: {

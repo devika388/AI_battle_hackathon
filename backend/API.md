@@ -42,16 +42,21 @@ errors use `{ "error": "..." }`.
 | GET | `/partners/assignments/available` | Approved, available partner | Unassigned deliveries |
 | GET | `/partners/assignments` | Approved partner | Own assignments |
 | POST | `/partners/assignments/:assignmentId/accept` | Approved partner | Atomically claim an assignment |
-| PATCH | `/partners/assignments/:assignmentId/status` | Assigned partner | Transition to `picked_up` or `delivered` |
+| PATCH | `/partners/assignments/:assignmentId/status` | Assigned partner | Mark a proof-backed delivery as delivered |
+| PATCH | `/partners/assignments/:assignmentId/stage` | Approved assigned partner | Advance one validated pickup/transit checkpoint |
 | POST | `/partners/assignments/:assignmentId/proof` | Assigned partner | Upload raw JPEG/PNG/WebP bytes (maximum 5 MB) |
 | GET | `/partners/proofs/:proofId/url` | Owning partner | Get a 60-second signed URL for private proof |
 
-Upload proof before marking an assignment `delivered`. The proof bucket object
-key, not a public URL, is stored in `delivery_proofs.proof_url`.
+The checkpoint sequence is pickup pending → pickup started → pickup confirmed
+→ in transit → arrived. Upload proof at arrival with `X-Receiver-Name`,
+`X-Delivered-At`, and optional `X-Proof-Notes` headers before marking the
+assignment delivered. The proof bucket object key, not a public URL, is stored
+in `delivery_proofs.proof_url`. The NGO is notified on delivery and must confirm
+receipt before the assignment becomes completed.
 
 ## Administration
 
-All `/admin` routes require a verified, active profile whose database role is
+All `/admin` routes require an active profile whose database role is
 `admin`.
 
 | Method | Path | Purpose |
@@ -62,11 +67,14 @@ All `/admin` routes require a verified, active profile whose database role is
 | PATCH | `/admin/users/:userId/suspension` | Set `{ "is_suspended": true/false }` |
 | POST | `/admin/ngos/:userId/verify` | Verify an NGO |
 | POST | `/admin/partners/:userId/verify` | Approve a delivery partner |
+| POST | `/admin/ngos/:userId/reject` | Reject NGO verification with a reason |
+| POST | `/admin/partners/:userId/reject` | Reject partner verification with a reason |
 | GET | `/admin/donations` | Monitor donations |
 | GET | `/admin/assignments` | Monitor assignments |
 | GET | `/admin/rescue-requests` | List rescue requests |
 | PATCH | `/admin/rescue-requests/:rescueId` | Update status and optional assigned partner |
 | GET | `/admin/impact` | Global impact totals |
+| GET | `/admin/reports` | Actual database totals and analytics series |
 
 ## Notifications and impact
 
@@ -87,6 +95,7 @@ Run these files in the Supabase SQL Editor, in order:
 1. `supabase/migrations/20261107193000_foodbridge_auth.sql`
 2. `supabase/migrations/20261107210000_foodbridge_backend_security.sql`
 3. `supabase/migrations/20261107222000_foodbridge_dashboard_fields.sql`
+4. `supabase/migrations/20261107234000_admin_delivery_dashboard.sql`
 
 The second migration adds `profiles.is_suspended`, backend-only transaction
 functions, and additive policies. It does not create, drop, or redefine
@@ -102,6 +111,12 @@ create donations, decline available donations, and confirm NGO receipt. NGO
 available-donation matching is a transparent rules-based score; city is used
 as a location proxy because the schema has no map coordinates. Declined
 donations are hidden from that NGO's subsequent available list.
+
+The fourth migration adds verification review status/notes, private delivery
+proof receiver names, persisted delivery checkpoints, and the trusted stage
+transition function. It also synchronizes completed statuses and notifies the
+assigned NGO when a partner marks a delivery delivered. Review this additive
+migration and apply it before using the partner/admin dashboards.
 
 `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are backend-only. Never set the
 service-role key in any `VITE_` variable. The browser Supabase client uses only

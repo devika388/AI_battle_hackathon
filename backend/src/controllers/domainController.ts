@@ -19,6 +19,7 @@ import {
   listAvailableAssignments,
   listPartnerAssignments,
   updateDeliveryStatus,
+  updateDeliveryStage,
   uploadDeliveryProof,
 } from "../services/deliveryService.js";
 import {
@@ -231,6 +232,20 @@ export async function updateDeliveryStatusController(
   });
 }
 
+export async function updateDeliveryStageController(
+  request: Request,
+  response: Response,
+) {
+  const user = requireUser(request);
+  response.json({
+    assignment: await updateDeliveryStage(
+      user.id,
+      request.params.assignmentId,
+      request.body,
+    ),
+  });
+}
+
 export async function uploadDeliveryProofController(
   request: Request,
   response: Response,
@@ -239,13 +254,23 @@ export async function uploadDeliveryProofController(
   if (!Buffer.isBuffer(request.body)) {
     throw new HttpError("Send the image as a raw JPEG, PNG, or WebP request body.", 415);
   }
+  let receiverName: string;
+  let notes: string;
+  try {
+    receiverName = decodeURIComponent(request.header("x-receiver-name") ?? "");
+    notes = decodeURIComponent(request.header("x-proof-notes") ?? "");
+  } catch {
+    throw new HttpError("Delivery proof metadata is malformed.", 400);
+  }
   response.status(201).json({
     proof: await uploadDeliveryProof(
       user.id,
       request.params.assignmentId,
       request.header("content-type")?.split(";")[0].trim() ?? "",
       request.body,
-      request.header("x-proof-notes")?.slice(0, 500),
+      notes.slice(0, 500),
+      receiverName.slice(0, 120),
+      request.header("x-delivered-at"),
     ),
   });
 }

@@ -12,7 +12,17 @@ export type DashboardTab =
   | "profile"
   | "available"
   | "accepted"
-  | "deliveries";
+  | "deliveries"
+  | "assignments"
+  | "users"
+  | "donors"
+  | "ngos"
+  | "partners"
+  | "adminDonations"
+  | "adminAssignments"
+  | "requests"
+  | "reports"
+  | "settings";
 
 const donorNav: { label: string; tab: DashboardTab }[] = [
   { label: "Overview", tab: "overview" },
@@ -35,15 +45,45 @@ const ngoNav: { label: string; tab: DashboardTab }[] = [
   { label: "Profile", tab: "profile" },
 ];
 
+const partnerNav: { label: string; tab: DashboardTab }[] = [
+  { label: "Overview", tab: "overview" },
+  { label: "Available Assignments", tab: "available" },
+  { label: "My Deliveries", tab: "assignments" },
+  { label: "Completed Deliveries", tab: "history" },
+  { label: "Notifications", tab: "notifications" },
+  { label: "Profile", tab: "profile" },
+];
+
+const adminNav: { label: string; tab: DashboardTab }[] = [
+  { label: "Overview", tab: "overview" },
+  { label: "Users", tab: "users" },
+  { label: "Donors", tab: "donors" },
+  { label: "NGOs", tab: "ngos" },
+  { label: "Delivery Partners", tab: "partners" },
+  { label: "Donations", tab: "adminDonations" },
+  { label: "Assignments", tab: "adminAssignments" },
+  { label: "Rescue Requests", tab: "requests" },
+  { label: "Reports", tab: "reports" },
+  { label: "Notifications", tab: "notifications" },
+  { label: "Settings", tab: "settings" },
+];
+
+type DashboardRole = "donor" | "ngo" | "delivery_partner" | "admin";
+
+function navFor(role: DashboardRole) {
+  if (role === "donor") return donorNav;
+  if (role === "ngo") return ngoNav;
+  if (role === "delivery_partner") return partnerNav;
+  return adminNav;
+}
+
 export function useDashboardTab(
-  role: "donor" | "ngo",
+  role: DashboardRole,
   defaultTab: DashboardTab = "overview",
 ) {
   const [params, setParams] = useSearchParams();
   const tabValue = params.get("tab") as DashboardTab | null;
-  const allowed = (role === "donor" ? donorNav : ngoNav).some(
-    (item) => item.tab === tabValue,
-  );
+  const allowed = navFor(role).some((item) => item.tab === tabValue);
   const tab = allowed ? tabValue! : defaultTab;
   const selectTab = (next: DashboardTab) => {
     const updated = new URLSearchParams(params);
@@ -61,7 +101,7 @@ export function DashboardShell({
   onTabChange,
   children,
 }: {
-  role: "donor" | "ngo";
+  role: DashboardRole;
   activeTab: DashboardTab;
   onTabChange: (tab: DashboardTab) => void;
   children: ReactNode;
@@ -69,8 +109,13 @@ export function DashboardShell({
   const { profile, signOut } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [logoutError, setLogoutError] = useState("");
-  const items = role === "donor" ? donorNav : ngoNav;
-  const roleTitle = role === "donor" ? "Donor workspace" : "NGO workspace";
+  const items = navFor(role);
+  const roleTitle = {
+    donor: "Donor workspace",
+    ngo: "NGO workspace",
+    delivery_partner: "Delivery partner workspace",
+    admin: "Admin workspace",
+  }[role];
 
   const logout = async () => {
     setLogoutError("");

@@ -159,7 +159,7 @@ export async function getDonation(
   const { data: proofs, error: proofError } = assignment
     ? await supabase
         .from("delivery_proofs")
-        .select("id, notes, delivered_at")
+        .select("id, notes, receiver_name, delivered_at")
         .eq("assignment_id", assignment.id)
     : { data: [], error: null };
   if (proofError) failDatabase(proofError, "Could not load delivery proof records:");

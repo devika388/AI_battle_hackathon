@@ -12,6 +12,7 @@ import {
 import { getSupabaseAdmin } from "./supabaseAdmin.js";
 
 type DeliveryStatus = z.infer<typeof deliveryStatusSchema>;
+type DeliveryStage = z.infer<typeof import("../validators/domainSchemas.js").deliveryStageSchema>;
 const proofBucket = "delivery-proofs";
 const allowedTypes = new Map([
   ["image/jpeg", "jpg"],
@@ -36,7 +37,7 @@ export async function listAvailableAssignments(
 
   const { data, error } = await getSupabaseAdmin()
     .from("donation_assignments")
-    .select("*, donations!inner(*)")
+    .select("*, donations!inner(*), ngo_profiles(organization_name, address, city)")
     .is("partner_id", null)
     .eq("status", "accepted")
     .eq("donations.status", "matched")
@@ -68,6 +69,12 @@ export async function updateDeliveryStatus(
   assignmentId: string,
   input: DeliveryStatus,
 ) {
+  if (input.status !== "delivered") {
+    throw new HttpError(
+      "Use the delivery checkpoint workflow to start and confirm pickup.",
+      409,
+    );
+  }
   const partnerId = await requireVerifiedPartner(userId);
   const { data, error } = await getSupabaseAdmin().rpc(
     "foodbridge_update_delivery_status",
@@ -91,6 +98,30 @@ export async function updateDeliveryStatus(
   return Array.isArray(data) ? data[0] : data;
 }
 
+export async function updateDeliveryStage(
+  userId: string,
+  assignmentId: string,
+  input: DeliveryStage,
+) {
+  const partnerId = await requireVerifiedPartner(userId);
+  const { data, error } = await getSupabaseAdmin().rpc(
+    "foodbridge_update_delivery_stage",
+    {
+      p_assignment_id: assignmentId,
+      p_partner_id: partnerId,
+      p_stage: input.stage,
+    },
+  );
+  if (error) {
+    if (error.code === "P0002") throw new HttpError("Assignment not found.", 404);
+    if (error.code === "55000") {
+      throw new HttpError("Complete the previous delivery checkpoint first.", 409);
+    }
+    failDatabase(error, "Could not update delivery checkpoint:");
+  }
+  return Array.isArray(data) ? data[0] : data;
+}
+
 export async function listPartnerAssignments(
   userId: string,
   limit: number,
@@ -99,7 +130,7 @@ export async function listPartnerAssignments(
   const partnerId = await requireVerifiedPartner(userId);
   const { data, error } = await getSupabaseAdmin()
     .from("donation_assignments")
-    .select("*, donations(*)")
+    .select("*, donations(*), ngo_profiles(organization_name, address, city), delivery_proofs(id, notes, receiver_name, delivered_at)")
     .eq("partner_id", partnerId)
     .order("assigned_at", { ascending: false })
     .range(offset, offset + limit - 1);
@@ -113,6 +144,8 @@ export async function uploadDeliveryProof(
   contentType: string,
   content: Buffer,
   notes?: string,
+  receiverName?: string,
+  deliveredAt?: string,
 ) {
   const partnerId = await requireVerifiedPartner(userId);
   const extension = allowedTypes.get(contentType);
@@ -123,11 +156,19 @@ export async function uploadDeliveryProof(
   if (content.length > maximumProofSize) {
     throw new HttpError("Delivery proof must be no larger than 5 MB.", 413);
   }
+  const receiver = receiverName?.trim();
+  if (!receiver || receiver.length > 120) {
+    throw new HttpError("Enter the receiver's name (up to 120 characters).", 400);
+  }
+  const deliveryDate = deliveredAt ? new Date(deliveredAt) : new Date();
+  if (!Number.isFinite(deliveryDate.getTime()) || deliveryDate.getTime() > Date.now() + 5 * 60_000) {
+    throw new HttpError("Enter a valid delivery timestamp no more than five minutes in the future.", 400);
+  }
 
   const supabase = getSupabaseAdmin();
   const { data: assignment, error: assignmentError } = await supabase
     .from("donation_assignments")
-    .select("id, status")
+    .select("id, status, delivery_stage")
     .eq("id", assignmentId)
     .eq("partner_id", partnerId)
     .maybeSingle();
@@ -135,8 +176,8 @@ export async function uploadDeliveryProof(
     failDatabase(assignmentError, "Could not verify delivery assignment:");
   }
   if (!assignment) throw new HttpError("Assignment not found.", 404);
-  if (!["assigned", "picked_up"].includes(assignment.status)) {
-    throw new HttpError("Proof can only be uploaded for an active delivery.", 409);
+  if (assignment.delivery_stage !== "arrived") {
+    throw new HttpError("Confirm arrival at the NGO before uploading delivery proof.", 409);
   }
 
   const objectPath = `${userId}/${assignmentId}/${randomUUID()}.${extension}`;
@@ -154,8 +195,10 @@ export async function uploadDeliveryProof(
       assignment_id: assignmentId,
       proof_url: objectPath,
       notes: notes?.trim() || null,
+      receiver_name: receiver,
+      delivered_at: deliveryDate.toISOString(),
     })
-    .select("id, assignment_id, notes, delivered_at")
+    .select("id, assignment_id, notes, receiver_name, delivered_at")
     .single();
   if (error) {
     const { error: cleanupError } = await supabase.storage
@@ -166,6 +209,13 @@ export async function uploadDeliveryProof(
     }
     failDatabase(error, "Could not save delivery proof details:");
   }
+  const { error: stageError } = await supabase
+    .from("donation_assignments")
+    .update({ delivery_stage: "proof_submitted" })
+    .eq("id", assignmentId)
+    .eq("partner_id", partnerId)
+    .eq("delivery_stage", "arrived");
+  if (stageError) failDatabase(stageError, "Could not update delivery proof checkpoint:");
   return { ...data, proof_url: objectPath };
 }
 

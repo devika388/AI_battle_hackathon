@@ -28,16 +28,19 @@ import {
   partnerAssignmentsController,
   updateCurrentProfileController,
   updateDeliveryStatusController,
+  updateDeliveryStageController,
   updateDonationController,
   uploadDeliveryProofController,
 } from "../controllers/domainController.js";
 import {
   adminImpactController,
+  adminDashboardReportController,
   listRescueRequestsController,
   listUsersController,
   monitorAssignmentsController,
   monitorDonationsController,
   setSuspensionController,
+  rejectVerificationController,
   updateRescueRequestController,
   verifyNgoController,
   verifyPartnerController,
@@ -54,6 +57,7 @@ import {
   donationIdParams,
   donationUpdateSchema,
   deliveryStatusSchema,
+  deliveryStageSchema,
   notificationIdParams,
   paginationQuery,
   profileUpdateSchema,
@@ -62,6 +66,8 @@ import {
   rescueUpdateSchema,
   suspensionSchema,
   userIdParams,
+  verificationRejectionSchema,
+  verificationRejectionParams,
 } from "../validators/domainSchemas.js";
 
 export const apiRoutes = Router();
@@ -217,6 +223,14 @@ apiRoutes.patch(
   validateBody(deliveryStatusSchema),
   asyncHandler(updateDeliveryStatusController),
 );
+apiRoutes.patch(
+  "/partners/assignments/:assignmentId/stage",
+  ...authenticated,
+  requireRole("delivery_partner"),
+  validateParams(assignmentIdParams),
+  validateBody(deliveryStageSchema),
+  asyncHandler(updateDeliveryStageController),
+);
 apiRoutes.post(
   "/partners/assignments/:assignmentId/proof",
   ...authenticated,
@@ -293,6 +307,14 @@ apiRoutes.post(
   validateParams(userIdParams),
   asyncHandler(verifyPartnerController),
 );
+apiRoutes.post(
+  "/admin/:kind/:userId/reject",
+  ...authenticated,
+  requireAdmin,
+  validateParams(verificationRejectionParams),
+  validateBody(verificationRejectionSchema),
+  asyncHandler(rejectVerificationController),
+);
 apiRoutes.get(
   "/admin/donations",
   ...authenticated,
@@ -327,4 +349,10 @@ apiRoutes.get(
   ...authenticated,
   requireAdmin,
   asyncHandler(adminImpactController),
+);
+apiRoutes.get(
+  "/admin/reports",
+  ...authenticated,
+  requireAdmin,
+  asyncHandler(adminDashboardReportController),
 );

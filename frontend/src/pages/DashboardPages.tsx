@@ -26,7 +26,10 @@ export function DashboardPage({
 
   if (!profile) return null;
   const isPending = kind === "pending";
-  const title = isPending
+  const isRejected = isPending && profile.verification_status === "rejected";
+  const title = isRejected
+    ? "Your application was not approved."
+    : isPending
     ? "Your application is being reviewed."
     : kind === "admin"
       ? "Administrator workspace"
@@ -57,7 +60,9 @@ export function DashboardPage({
             {title}
           </h1>
           <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-600 sm:text-base">
-            {isPending
+            {isRejected
+              ? "An administrator reviewed your application and did not approve it."
+              : isPending
               ? "Your registration is saved. An administrator must review and approve your organization or delivery partner account before dashboard access is enabled."
               : kind === "admin"
                 ? "Review and approve NGO and delivery partner registrations. Administrator access is assigned only through a trusted process."
@@ -65,13 +70,23 @@ export function DashboardPage({
           </p>
           <div className="mt-6 flex flex-wrap items-center gap-3">
             <span className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-forest">
-              {isPending ? "Pending approval" : "Verified account"}
+              {isRejected
+                ? "Not approved"
+                : isPending
+                  ? "Pending approval"
+                  : "Verified account"}
             </span>
             <span className="text-sm text-slate-500">
               Signed in as {profile.email ?? "your FoodBridge account"}
             </span>
           </div>
         </section>
+
+        {isRejected && profile.verification_notes ? (
+          <p className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+            Review note: {profile.verification_notes}
+          </p>
+        ) : null}
 
         {logoutError ? (
           <p className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert">
@@ -85,7 +100,7 @@ export function DashboardPage({
           </div>
         ) : null}
 
-        {isPending ? (
+        {isPending && !isRejected ? (
           <p className="mt-7 text-sm leading-6 text-slate-600">
             We’ll keep this page available while your application is reviewed.
             You can safely sign out and return later.

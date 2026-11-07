@@ -72,10 +72,12 @@ export async function getAuthProfile(userId: string): Promise<AuthProfile | null
   if (!data) return null;
 
   let isApproved = data.role !== "ngo" && data.role !== "delivery_partner_pending";
+  let verificationStatus: AuthProfile["verification_status"];
+  let verificationNotes: string | null = null;
   if (data.role === "ngo") {
     const { data: ngoProfile, error: ngoError } = await supabase
       .from("ngo_profiles")
-      .select("is_verified")
+      .select("is_verified, verification_status, verification_notes")
       .eq("user_id", userId)
       .maybeSingle();
     if (ngoError) {
@@ -83,6 +85,20 @@ export async function getAuthProfile(userId: string): Promise<AuthProfile | null
       throw new HttpError("We couldn't load your approval status.", 500);
     }
     isApproved = ngoProfile?.is_verified === true;
+    verificationStatus = ngoProfile?.verification_status ?? null;
+    verificationNotes = ngoProfile?.verification_notes ?? null;
+  } else if (data.role === "delivery_partner_pending") {
+    const { data: partnerProfile, error: partnerError } = await supabase
+      .from("partner_profiles")
+      .select("verification_status, verification_notes")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (partnerError) {
+      console.error("Could not read delivery partner approval status:", partnerError);
+      throw new HttpError("We couldn't load your approval status.", 500);
+    }
+    verificationStatus = partnerProfile?.verification_status ?? null;
+    verificationNotes = partnerProfile?.verification_notes ?? null;
   }
 
   return {
@@ -93,6 +109,8 @@ export async function getAuthProfile(userId: string): Promise<AuthProfile | null
     role: data.role,
     is_approved: isApproved,
     is_suspended: data.is_suspended === true,
+    verification_status: verificationStatus,
+    verification_notes: verificationNotes,
   };
 }
 
@@ -155,6 +173,7 @@ async function getPendingNgoApprovals(): Promise<PendingApproval[]> {
     .from("ngo_profiles")
     .select("user_id, organization_name, registration_number")
     .eq("is_verified", false)
+    .eq("verification_status", "pending")
     .not("user_id", "is", null);
 
   if (ngoError) {
@@ -192,27 +211,26 @@ async function getPendingNgoApprovals(): Promise<PendingApproval[]> {
 
 async function getPendingPartnerApprovals(): Promise<PendingApproval[]> {
   const supabase = getSupabaseAdmin();
+  const { data: partners, error: partnerError } = await supabase
+    .from("partner_profiles")
+    .select("user_id, vehicle_type, vehicle_number")
+    .eq("verification_status", "pending");
+  if (partnerError) {
+    console.error("Could not load pending delivery partner details:", partnerError);
+    throw new HttpError("We couldn't load pending approvals.", 500);
+  }
+  const partnerById = new Map((partners ?? []).map((partner) => [partner.user_id, partner]));
+  const userIds = [...partnerById.keys()];
+  if (!userIds.length) return [];
   const { data: profiles, error: profileError } = await supabase
     .from("profiles")
     .select("id, full_name, email, phone, role")
+    .in("id", userIds)
     .eq("role", "delivery_partner_pending");
   if (profileError) {
     console.error("Could not list pending delivery partner approvals:", profileError);
     throw new HttpError("We couldn't load pending approvals.", 500);
   }
-  const userIds = (profiles ?? []).map((profile) => profile.id);
-  if (!userIds.length) return [];
-
-  const { data: partners, error: partnerError } = await supabase
-    .from("partner_profiles")
-    .select("user_id, vehicle_type, vehicle_number")
-    .in("user_id", userIds);
-  if (partnerError) {
-    console.error("Could not load delivery partner details:", partnerError);
-    throw new HttpError("We couldn't load pending approvals.", 500);
-  }
-
-  const partnerById = new Map((partners ?? []).map((partner) => [partner.user_id, partner]));
   return (profiles ?? []).flatMap((profile) => {
     const partner = partnerById.get(profile.id);
     if (!partner) return [];
@@ -254,7 +272,7 @@ export async function approveRegistration(userId: string): Promise<void> {
   if (profile.role === "ngo") {
     const { data, error } = await supabase
       .from("ngo_profiles")
-      .update({ is_verified: true })
+      .update({ is_verified: true, verification_status: "approved", verification_notes: null })
       .eq("user_id", userId)
       .eq("is_verified", false)
       .select("user_id")
@@ -296,6 +314,14 @@ export async function approveRegistration(userId: string): Promise<void> {
     }
     if (!data) {
       throw new HttpError("This delivery partner is already approved.", 409);
+    }
+    const { error: approvalError } = await supabase
+      .from("partner_profiles")
+      .update({ verification_status: "approved", verification_notes: null })
+      .eq("user_id", userId);
+    if (approvalError) {
+      console.error("Could not update delivery partner verification status:", approvalError);
+      throw new HttpError("The partner was approved, but its review status could not be updated.", 500);
     }
     return;
   }

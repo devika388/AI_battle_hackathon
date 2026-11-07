@@ -2,8 +2,10 @@ import type { Request, Response } from "express";
 import {
   listRescueRequests,
   listUsers,
+  getAdminDashboardReport,
   monitorAssignments,
   monitorDonations,
+  rejectVerification,
   setAccountSuspension,
   updateRescueRequest,
 } from "../services/adminService.js";
@@ -56,6 +58,34 @@ export async function verifyPartnerController(
   response.json({
     verification: await verifyDeliveryPartner(request.params.userId),
   });
+}
+
+export async function rejectVerificationController(
+  request: Request,
+  response: Response,
+) {
+  const kind = request.params.kind === "ngos"
+    ? "ngo"
+    : request.params.kind === "partners"
+      ? "partner"
+      : null;
+  if (!kind) {
+    throw new HttpError("Verification type is invalid.", 400);
+  }
+  response.json({
+    verification: await rejectVerification(
+      request.params.userId,
+      kind,
+      request.body.reason,
+    ),
+  });
+}
+
+export async function adminDashboardReportController(
+  _request: Request,
+  response: Response,
+) {
+  response.json({ report: await getAdminDashboardReport() });
 }
 
 export async function monitorDonationsController(
