@@ -3,6 +3,7 @@ import { getAuthProfile } from "../services/authService.js";
 import {
   acceptDonation,
   cancelDonation,
+  confirmNgoReceipt,
   createDonation,
   declineDonation,
   getDonation,
@@ -171,6 +172,16 @@ export async function acceptedDonationsController(
   const { limit, offset } = page(request);
   response.json({
     assignments: await listAcceptedDonations(user.id, limit, offset),
+  });
+}
+
+export async function confirmNgoReceiptController(
+  request: Request,
+  response: Response,
+) {
+  const user = requireUser(request);
+  response.json({
+    assignment: await confirmNgoReceipt(user.id, request.params.assignmentId),
   });
 }
 

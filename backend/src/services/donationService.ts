@@ -27,6 +27,9 @@ export async function createDonation(userId: string, input: DonationCreate) {
       p_quantity: input.quantity,
       p_quantity_unit: input.quantity_unit,
       p_pickup_address: input.pickup_address,
+      p_city: input.city,
+      p_pincode: input.pincode,
+      p_preparation_time: input.preparation_time.toISOString(),
       p_expiry_time: input.expiry_time.toISOString(),
       p_image_url: input.image_url ?? null,
     },
@@ -131,7 +134,42 @@ export async function getDonation(
     .eq("donation_id", donationId)
     .order("updated_at", { ascending: true });
   if (eventsError) failDatabase(eventsError, "Could not load donation history:");
-  return { ...data, status_events: events ?? [] };
+  const [
+    { data: assignments, error: assignmentError },
+    { data: matches, error: matchError },
+  ] = await Promise.all([
+    supabase
+      .from("donation_assignments")
+      .select(
+        "id, donation_id, ngo_id, partner_id, status, assigned_at, ngo_profiles(organization_name), partner_profiles(vehicle_type, vehicle_number)",
+      )
+      .eq("donation_id", donationId)
+      .limit(1),
+    supabase
+      .from("ngo_matches")
+      .select("match_score, match_reason, status, ngo_profiles(organization_name)")
+      .eq("donation_id", donationId)
+      .order("match_score", { ascending: false }),
+  ]);
+  if (assignmentError) {
+    failDatabase(assignmentError, "Could not load donation assignment:");
+  }
+  if (matchError) failDatabase(matchError, "Could not load NGO matches:");
+  const assignment = assignments?.[0] ?? null;
+  const { data: proofs, error: proofError } = assignment
+    ? await supabase
+        .from("delivery_proofs")
+        .select("id, notes, delivered_at")
+        .eq("assignment_id", assignment.id)
+    : { data: [], error: null };
+  if (proofError) failDatabase(proofError, "Could not load delivery proof records:");
+  return {
+    ...data,
+    status_events: events ?? [],
+    assignment,
+    matches: matches ?? [],
+    delivery_proofs: proofs ?? [],
+  };
 }
 
 export async function updateDonation(
@@ -188,14 +226,33 @@ export async function listDonorDonations(
   offset: number,
 ) {
   const donorId = await getOwnedProfileId("donor_profiles", userId);
-  const { data, error } = await getSupabaseAdmin()
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
     .from("donations")
     .select("*")
     .eq("donor_id", donorId)
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
   if (error) failDatabase(error, "Could not load donation history:");
-  return data ?? [];
+  const donations = data ?? [];
+  if (!donations.length) return [];
+  const ids = donations.map((donation) => donation.id);
+  const { data: assignments, error: assignmentError } = await supabase
+    .from("donation_assignments")
+    .select(
+      "donation_id, id, status, assigned_at, ngo_profiles(organization_name), partner_profiles(vehicle_type, vehicle_number)",
+    )
+    .in("donation_id", ids);
+  if (assignmentError) {
+    failDatabase(assignmentError, "Could not load donation tracking details:");
+  }
+  const byDonation = new Map(
+    (assignments ?? []).map((assignment) => [assignment.donation_id, assignment]),
+  );
+  return donations.map((donation) => ({
+    ...donation,
+    assignment: byDonation.get(donation.id) ?? null,
+  }));
 }
 
 export async function listMatchingDonations(
@@ -204,19 +261,97 @@ export async function listMatchingDonations(
   offset: number,
 ) {
   const ngoId = await requireVerifiedNgo(userId);
-  const { data, error } = await getSupabaseAdmin()
-    .from("ngo_matches")
-    .select(
-      "id, donation_id, match_score, match_reason, status, donations!inner(*)",
-    )
-    .eq("ngo_id", ngoId)
-    .eq("status", "pending")
-    .eq("donations.status", "available")
-    .gt("donations.expiry_time", new Date().toISOString())
-    .order("match_score", { ascending: false })
-    .range(offset, offset + limit - 1);
-  if (error) failDatabase(error, "Could not load matching donations:");
-  return data ?? [];
+  const supabase = getSupabaseAdmin();
+  const [{ data: ngo, error: ngoError }, { data: donations, error }] =
+    await Promise.all([
+      supabase
+        .from("ngo_profiles")
+        .select("city, preferred_categories, max_daily_quantity, capacity_unit")
+        .eq("id", ngoId)
+        .single(),
+      supabase
+        .from("ngo_matches")
+        .select("donation_id")
+        .eq("ngo_id", ngoId)
+        .eq("status", "declined"),
+    ]);
+  if (ngoError) failDatabase(ngoError, "Could not load NGO matching preferences:");
+  if (error) failDatabase(error, "Could not load declined NGO matches:");
+  const declinedDonationIds = (donations ?? []).map((match) => match.donation_id);
+  let availableDonationsQuery = supabase
+        .from("donations")
+        .select("*")
+        .eq("status", "available")
+        .gt("expiry_time", new Date().toISOString())
+        .order("created_at", { ascending: false });
+  if (declinedDonationIds.length) {
+    availableDonationsQuery = availableDonationsQuery.not(
+      "id",
+      "in",
+      `(${declinedDonationIds.join(",")})`,
+    );
+  }
+  const { data: availableDonations, error: availableError } =
+    await availableDonationsQuery.range(offset, offset + limit - 1);
+  if (availableError) failDatabase(availableError, "Could not load matching donations:");
+  const categories = (ngo.preferred_categories ?? []).map((value: string) =>
+    value.toLocaleLowerCase().replace(/[\s-]+/g, "_"),
+  );
+  return (availableDonations ?? [])
+    .map((donation) => {
+      const components = {
+        location: ngo.city && donation.city &&
+            ngo.city.trim().toLocaleLowerCase() ===
+              donation.city.trim().toLocaleLowerCase()
+          ? 35
+          : 0,
+        food_requirements: categories.length === 0
+          ? 15
+          : categories.includes(String(donation.food_category).toLocaleLowerCase().replace(/[\s-]+/g, "_"))
+            ? 25
+            : 0,
+        capacity: ngo.max_daily_quantity == null ||
+            !ngo.capacity_unit ||
+            ngo.capacity_unit.toLocaleLowerCase() !== String(donation.quantity_unit).toLocaleLowerCase()
+          ? 15
+          : Number(donation.quantity) <= Number(ngo.max_daily_quantity)
+            ? 25
+            : 0,
+        handling_time: (() => {
+          const hours =
+            (new Date(donation.expiry_time).getTime() - Date.now()) / 3_600_000;
+          return hours >= 4 ? 15 : hours >= 2 ? 8 : 0;
+        })(),
+      };
+      return {
+        donation,
+        match_score: Object.values(components).reduce((sum, score) => sum + score, 0),
+        match_reason: [
+          components.location ? "Same city (+35)" : "Different or unknown city (+0)",
+          categories.length === 0
+            ? "No category preferences set; neutral (+15)"
+            : components.food_requirements
+              ? "Matches preferred food category (+25)"
+              : "Does not match preferred categories (+0)",
+          ngo.max_daily_quantity == null
+            ? "No daily capacity limit set; neutral (+15)"
+            : !ngo.capacity_unit ||
+                ngo.capacity_unit.toLocaleLowerCase() !== String(donation.quantity_unit).toLocaleLowerCase()
+              ? "Capacity unit differs or is unset; neutral (+15)"
+            : components.capacity
+              ? "Within daily capacity (+25)"
+              : "Exceeds daily capacity (+0)",
+          components.handling_time === 15
+            ? "At least 4 hours to expiry (+15)"
+            : components.handling_time === 8
+              ? "2–4 hours to expiry (+8)"
+              : "Less than 2 hours to expiry (+0)",
+        ].join(" · "),
+        score_components: components,
+        distance_km: null,
+      };
+    })
+    .sort((left, right) => right.match_score - left.match_score);
 }
 
 export async function acceptDonation(userId: string, donationId: string) {
@@ -237,19 +372,18 @@ export async function acceptDonation(userId: string, donationId: string) {
 
 export async function declineDonation(userId: string, donationId: string) {
   const ngoId = await requireVerifiedNgo(userId);
-  const { data, error } = await getSupabaseAdmin()
-    .from("ngo_matches")
-    .update({ status: "declined" })
-    .eq("donation_id", donationId)
-    .eq("ngo_id", ngoId)
-    .eq("status", "pending")
-    .select("id, donation_id, status")
-    .maybeSingle();
-  if (error) failDatabase(error, "Could not decline donation match:");
-  if (!data) {
-    throw new HttpError("Pending match not found or already handled.", 409);
+  const { data, error } = await getSupabaseAdmin().rpc(
+    "foodbridge_decline_donation",
+    { p_donation_id: donationId, p_ngo_id: ngoId },
+  );
+  if (error) {
+    if (error.code === "P0002") throw new HttpError("Donation not found.", 404);
+    if (error.code === "55000") {
+      throw new HttpError("This donation is no longer available.", 409);
+    }
+    failDatabase(error, "Could not decline donation:");
   }
-  return data;
+  return Array.isArray(data) ? data[0] : data;
 }
 
 export async function listAcceptedDonations(
@@ -257,14 +391,28 @@ export async function listAcceptedDonations(
   limit: number,
   offset: number,
 ) {
-  const ngoId = await getOwnedProfileId("ngo_profiles", userId);
+  const ngoId = await requireVerifiedNgo(userId);
   const { data, error } = await getSupabaseAdmin()
     .from("donation_assignments")
     .select("*, donations(*)")
     .eq("ngo_id", ngoId)
-    .in("status", ["accepted", "assigned", "picked_up", "delivered"])
+    .in("status", ["accepted", "assigned", "picked_up", "delivered", "completed"])
     .order("assigned_at", { ascending: false })
     .range(offset, offset + limit - 1);
   if (error) failDatabase(error, "Could not load accepted donations:");
   return data ?? [];
+}
+
+export async function confirmNgoReceipt(userId: string, assignmentId: string) {
+  const ngoId = await requireVerifiedNgo(userId);
+  const { data, error } = await getSupabaseAdmin().rpc(
+    "foodbridge_confirm_ngo_receipt",
+    { p_assignment_id: assignmentId, p_ngo_id: ngoId },
+  );
+  if (error) {
+    if (error.code === "P0002") throw new HttpError("Assignment not found.", 404);
+    if (error.code === "55000") throw new HttpError("Only delivered donations can be confirmed.", 409);
+    failDatabase(error, "Could not confirm NGO receipt:");
+  }
+  return Array.isArray(data) ? data[0] : data;
 }

@@ -1,7 +1,8 @@
 # FoodBridge API
 
 The API is mounted at `/api`. Private routes require
-`Authorization: Bearer <Supabase access token>` and a verified email. Roles are
+`Authorization: Bearer <Supabase access token>` and a valid Supabase access token. Email confirmation is temporarily disabled;
+the API still validates every access token. Roles are
 loaded from `profiles` on the server; request bodies and user metadata never
 grant a role. Suspended accounts are denied.
 
@@ -14,7 +15,7 @@ errors use `{ "error": "..." }`.
 | Method | Path | Access | Purpose |
 |---|---|---|---|
 | GET | `/auth/me` | Signed-in | Current Auth user and profile |
-| POST | `/auth/complete-registration` | Verified | Complete a validated registration |
+| POST | `/auth/complete-registration` | Signed-in | Complete a validated registration |
 | GET | `/profile` | Signed-in | Current profile and role-specific details |
 | PATCH | `/profile` | Signed-in | Update `full_name`/`phone` and permitted own subtype fields |
 
@@ -31,7 +32,8 @@ errors use `{ "error": "..." }`.
 | GET | `/ngo/donations/matching` | Verified NGO | Pending matches for that NGO |
 | POST | `/ngo/donations/:donationId/accept` | Verified NGO | Atomically accept a donation |
 | POST | `/ngo/donations/:donationId/decline` | Verified NGO | Decline own pending match |
-| GET | `/ngo/donations/accepted` | NGO | Accepted and in-progress donations |
+| GET | `/ngo/donations/accepted` | Verified NGO | Accepted and in-progress donations |
+| POST | `/ngo/assignments/:assignmentId/confirm-receipt` | Verified NGO | Confirm receipt of a delivered donation |
 
 ## Delivery partners
 
@@ -84,6 +86,7 @@ Run these files in the Supabase SQL Editor, in order:
 
 1. `supabase/migrations/20261107193000_foodbridge_auth.sql`
 2. `supabase/migrations/20261107210000_foodbridge_backend_security.sql`
+3. `supabase/migrations/20261107222000_foodbridge_dashboard_fields.sql`
 
 The second migration adds `profiles.is_suspended`, backend-only transaction
 functions, and additive policies. It does not create, drop, or redefine
@@ -92,6 +95,13 @@ and delivery proof/NGO document buckets private, and applies 10 MB upload
 limits (5 MB for delivery proof) plus allowed MIME types.
 It preserves existing policies and adds restrictive guards. **Policies are not
 active until the migrations have actually been run in Supabase.**
+
+The third migration adds donation preparation time, city, and pincode fields,
+NGO category and capacity preferences, and the trusted functions used to
+create donations, decline available donations, and confirm NGO receipt. NGO
+available-donation matching is a transparent rules-based score; city is used
+as a location proxy because the schema has no map coordinates. Declined
+donations are hidden from that NGO's subsequent available list.
 
 `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are backend-only. Never set the
 service-role key in any `VITE_` variable. The browser Supabase client uses only

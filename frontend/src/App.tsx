@@ -5,7 +5,6 @@ import {
   AuthCallbackPage,
   ForgotPasswordPage,
   ResetPasswordPage,
-  VerificationPage,
 } from "./pages/AuthFlowPages";
 import { DashboardPage, RegistrationPendingPage } from "./pages/DashboardPages";
 import { DesignSystemPage } from "./pages/DesignSystemPage";
@@ -13,6 +12,8 @@ import { LoginPage } from "./pages/LoginPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { PublicSitePage } from "./pages/PublicSitePage";
 import { RegistrationPage } from "./pages/RegistrationPage";
+import { DonorDashboard } from "./pages/dashboard/DonorDashboard";
+import { NgoDashboard } from "./pages/dashboard/NgoDashboard";
 
 export function App() {
   return (
@@ -25,20 +26,18 @@ export function App() {
           <Route path="/register" element={<RegistrationPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
-          <Route path="/auth/verify" element={<VerificationPage />} />
           <Route path="/auth/callback" element={<AuthCallbackPage />} />
           <Route element={<ProtectedRoute />}>
             <Route path="/dashboard" element={null} />
             <Route path="/dashboard/pending" element={<RegistrationPendingPage />} />
           </Route>
           <Route element={<ProtectedRoute role="donor" />}>
-            <Route
-              path="/dashboard/donor"
-              element={<DashboardPage kind="donor" />}
-            />
+            <Route path="/dashboard/donor" element={<DonorDashboard />} />
+            <Route path="/dashboard/donor/donations/:donationId" element={<DonorDashboard />} />
           </Route>
           <Route element={<ProtectedRoute role="ngo" />}>
-            <Route path="/dashboard/ngo" element={<DashboardPage kind="ngo" />} />
+            <Route path="/dashboard/ngo" element={<NgoDashboard />} />
+            <Route path="/dashboard/ngo/donations/:donationId" element={<NgoDashboard />} />
           </Route>
           <Route element={<ProtectedRoute role="delivery_partner" />}>
             <Route

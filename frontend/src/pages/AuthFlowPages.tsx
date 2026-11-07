@@ -14,81 +14,6 @@ import { InputField } from "../components/ui";
 import { requestJson } from "../services/apiClient";
 import { getSupabaseClient } from "../services/supabaseClient";
 
-interface EmailRouteState {
-  email?: string;
-}
-
-export function VerificationPage() {
-  const location = useLocation();
-  const state = location.state as EmailRouteState | null;
-  const [email, setEmail] = useState(state?.email ?? "");
-  const [message, setMessage] = useState(
-    "Check your inbox for a verification link to finish creating your account.",
-  );
-  const [tone, setTone] = useState<"info" | "success" | "error">("info");
-  const [loading, setLoading] = useState(false);
-
-  const resend = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setMessage("");
-    setLoading(true);
-    try {
-      const { error } = await getSupabaseClient().auth.resend({
-        type: "signup",
-        email: email.trim().toLowerCase(),
-        options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
-        },
-      });
-      if (error) throw error;
-      setTone("success");
-      setMessage(
-        "If an account needs verification for this address, a new link is on its way.",
-      );
-    } catch (error) {
-      setTone("error");
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : "We couldn't resend the verification email. Please try again.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <AuthLayout
-      eyebrow="One more step"
-      title="Check your email."
-      description="Verify your email address to activate your FoodBridge account. The link can only be used once and may expire."
-    >
-      <form className="space-y-5" onSubmit={resend}>
-        <InputField
-          autoComplete="email"
-          id="verification-email"
-          label="Email address"
-          maxLength={254}
-          name="email"
-          onChange={(event) => setEmail(event.target.value)}
-          placeholder="you@example.com"
-          required
-          type="email"
-          value={email}
-        />
-        <FormMessage message={message} tone={tone} />
-        <FormSubmit loading={loading}>Resend verification email</FormSubmit>
-      </form>
-      <p className="mt-6 text-center text-sm text-slate-600">
-        Already verified?{" "}
-        <Link className="font-semibold text-forest hover:underline" to="/login">
-          Sign in
-        </Link>
-      </p>
-    </AuthLayout>
-  );
-}
-
 export function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
@@ -268,7 +193,7 @@ export function AuthCallbackPage() {
     if (!registration) {
       navigate("/login", {
         replace: true,
-        state: { message: "Your email is verified. You can now sign in." },
+        state: { message: "Your account is ready. You can now sign in." },
       });
       return;
     }
@@ -278,7 +203,7 @@ export function AuthCallbackPage() {
         const { data } = await getSupabaseClient().auth.getSession();
         const accessToken = data.session?.access_token;
         if (!accessToken) {
-          throw new Error("Your verification session expired. Please sign in.");
+          throw new Error("Your setup session expired. Please sign in.");
         }
         await requestJson("/auth/complete-registration", {
           method: "POST",
@@ -299,9 +224,9 @@ export function AuthCallbackPage() {
   if (!ready) {
     return (
       <AuthLayout
-        eyebrow="Email verification"
-        title="Verifying your email."
-        description="Please wait while we confirm your account."
+        eyebrow="Account setup"
+        title="Finishing your setup."
+        description="Please wait while we prepare your account."
       >
         <p className="text-sm text-slate-500">This should only take a moment…</p>
       </AuthLayout>
@@ -312,19 +237,19 @@ export function AuthCallbackPage() {
     const queryMessage = new URLSearchParams(location.search).get("error_description");
     return (
       <AuthLayout
-        eyebrow="Email verification"
-        title="We couldn't verify that link."
+        eyebrow="Account setup"
+        title="We couldn't finish setup."
         description={
           queryMessage ??
-          (message || "The link may have expired or already been used.")
+          (message || "Sign in again or create a new account.")
         }
       >
         <div className="flex flex-wrap gap-3">
           <Link
             className="inline-flex min-h-11 items-center justify-center rounded-2xl bg-forest px-5 text-sm font-semibold text-white"
-            to="/auth/verify"
+            to="/register"
           >
-            Resend verification
+            Create an account
           </Link>
           <Link
             className="inline-flex min-h-11 items-center justify-center rounded-2xl border border-forest/20 px-5 text-sm font-semibold text-forest"
@@ -339,9 +264,9 @@ export function AuthCallbackPage() {
 
   return (
     <AuthLayout
-      eyebrow="Email verification"
+      eyebrow="Account setup"
       title="Finishing your setup."
-      description="Your email is verified. We’re preparing your account profile."
+      description="We’re preparing your account profile."
     >
       <p className="text-sm text-slate-500">Please keep this page open…</p>
     </AuthLayout>

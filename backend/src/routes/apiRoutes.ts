@@ -13,6 +13,7 @@ import {
   availableAssignmentsController,
   cancelDonationController,
   createDonationController,
+  confirmNgoReceiptController,
   currentUserController,
   declineDonationController,
   deliveryProofUrlController,
@@ -45,7 +46,6 @@ import { healthController } from "../controllers/healthController.js";
 import { requireAdmin } from "../middleware/requireAdmin.js";
 import { requireAuth } from "../middleware/requireAuth.js";
 import { requireRole } from "../middleware/requireRole.js";
-import { requireVerifiedEmail } from "../middleware/requireVerifiedEmail.js";
 import { validateBody, validateParams, validateQuery } from "../middleware/validateRequest.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import {
@@ -67,7 +67,7 @@ import {
 export const apiRoutes = Router();
 
 apiRoutes.get("/health", healthController);
-const authenticated = [requireAuth, requireVerifiedEmail] as const;
+const authenticated = [requireAuth] as const;
 const page = validateQuery(paginationQuery);
 
 apiRoutes.get(
@@ -179,6 +179,13 @@ apiRoutes.post(
   requireRole("ngo"),
   validateParams(donationIdParams),
   asyncHandler(declineDonationController),
+);
+apiRoutes.post(
+  "/ngo/assignments/:assignmentId/confirm-receipt",
+  ...authenticated,
+  requireRole("ngo"),
+  validateParams(assignmentIdParams),
+  asyncHandler(confirmNgoReceiptController),
 );
 
 apiRoutes.get(

@@ -26,6 +26,9 @@ export const profileUpdateSchema = z
     vehicle_type: nonEmpty(80).optional(),
     vehicle_number: nonEmpty(40).optional(),
     availability: z.boolean().optional(),
+    preferred_categories: z.array(nonEmpty(80)).max(20).optional(),
+    max_daily_quantity: z.coerce.number().positive().max(1_000_000).nullable().optional(),
+    capacity_unit: nonEmpty(40).nullable().optional(),
   })
   .refine((value) => Object.keys(value).length > 0, "Provide at least one profile field.");
 
@@ -40,6 +43,9 @@ export const donationCreateSchema = z.object({
   quantity: z.coerce.number().positive().max(1_000_000),
   quantity_unit: nonEmpty(40),
   pickup_address: nonEmpty(1000),
+  city: nonEmpty(120),
+  pincode: z.string().trim().regex(/^[0-9A-Za-z -]{4,12}$/),
+  preparation_time: z.coerce.date(),
   expiry_time: z.coerce.date().refine((value) => value.getTime() > Date.now(), {
     message: "Expiry time must be in the future.",
   }),
@@ -50,6 +56,7 @@ export const donationUpdateSchema = donationCreateSchema
   .partial()
   .omit({ expiry_time: true })
   .extend({
+    preparation_time: z.coerce.date().optional(),
     expiry_time: z.coerce
       .date()
       .refine((value) => value.getTime() > Date.now(), {

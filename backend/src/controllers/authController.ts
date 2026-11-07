@@ -34,7 +34,7 @@ export const completeRegistrationController: RequestHandler = async (
     const user = request.authUser;
     if (!user) throw new HttpError("Sign in to continue.", 401);
     if (!user.email) {
-      throw new HttpError("Your verified account does not have an email.", 400);
+      throw new HttpError("Your account does not have an email address.", 400);
     }
 
     const profile = await completeRegistration(

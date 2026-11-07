@@ -3,6 +3,7 @@ import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { AuthLayout, FormMessage, FormSubmit } from "../components/auth/AuthLayout";
 import { InputField } from "../components/ui";
+import { requestJson } from "../services/apiClient";
 import { getSupabaseClient } from "../services/supabaseClient";
 import { dashboardPath } from "../auth/routeGuards";
 
@@ -38,13 +39,11 @@ export function LoginPage() {
         password,
       });
       if (error) {
-        if (/email not confirmed/i.test(error.message)) {
-          navigate("/auth/verify", { state: { email } });
-          return;
-        }
         setMessage(
-          /invalid login credentials/i.test(error.message)
-            ? "Email or password is incorrect."
+          /email not confirmed/i.test(error.message)
+            ? "Email confirmation is still enabled in Supabase. Turn off Confirm email under Authentication → Providers → Email, then try again."
+            : /invalid login credentials/i.test(error.message)
+              ? "Email or password is incorrect."
             : error.message,
         );
         return;
@@ -56,10 +55,20 @@ export function LoginPage() {
 
       const profile = await refreshProfile(data.session.access_token);
       if (!profile) {
+        const registration = data.user.user_metadata?.registration;
+        if (registration) {
+          await requestJson("/auth/complete-registration", {
+            method: "POST",
+            headers: { Authorization: "Bearer " + data.session.access_token },
+          });
+          const completedProfile = await refreshProfile(data.session.access_token);
+          if (completedProfile) {
+            navigate(dashboardPath(completedProfile), { replace: true });
+            return;
+          }
+        }
         await getSupabaseClient().auth.signOut();
-        setMessage(
-          "Your account profile is not set up yet. Complete registration using the link in your verification email.",
-        );
+        setMessage("Your account profile is not set up. Please register again or contact support.");
         return;
       }
 

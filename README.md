@@ -92,10 +92,17 @@ RLS and must only be available to the backend.
    backend-only transaction functions, and restrictive RLS/storage policies
    without dropping existing tables or policies. No policy should be treated
    as active until this migration has succeeded in Supabase.
-5. In Supabase Authentication URL configuration, allow the app origin and the
-   `/auth/callback` and `/reset-password` redirect paths for local and deployed
-   environments. Configure SMTP/email templates and enable email confirmation.
-6. Start the frontend and backend with `npm run dev`.
+5. To temporarily skip signup email verification, open Supabase Dashboard →
+   Authentication → Providers → Email and turn off **Confirm email**. Keep
+   email/password sign-in enabled. The backend still requires a valid Supabase
+   access token and enforces account roles and permissions. Allow the app origin
+   and `/reset-password` in the Supabase redirect URL configuration for local
+   and deployed environments.
+6. Apply [`supabase/migrations/20261107222000_foodbridge_dashboard_fields.sql`](./supabase/migrations/20261107222000_foodbridge_dashboard_fields.sql)
+   to add the donor donation details and NGO matching preferences required by
+   the dashboards. This migration adds columns and trusted transactional
+   functions; it does not recreate or delete existing tables.
+7. Start the frontend and backend with `npm run dev`.
 
 The registration handler uses the inspected schema: `profiles.id` is the auth
 user UUID; contact details go in `profiles`; donor, NGO, and vehicle details go
@@ -110,14 +117,16 @@ existing partner table has no approval column, new delivery accounts use the
 `delivery_partner_pending` value in `profiles.role` and are made unavailable
 until an admin approves them through the protected admin dashboard. Public
 registration only permits donor, NGO, and delivery partner roles. To provision
-an initial admin, create/verify the Auth user in Supabase, then assign `admin`
+an initial admin, create the Auth user in Supabase, then assign `admin`
 to that user's matching `profiles.id` using the trusted Supabase SQL editor.
-There is intentionally no public admin signup or role-change endpoint.
+There is intentionally no public admin signup or role-change endpoint. Email
+verification is disabled in the application flow for now; re-enable **Confirm
+email** in Supabase to restore its signup confirmation requirement.
 
 The API verifies Supabase access tokens and resolves the effective role from
 `profiles`; frontend metadata is never used for authorization. Dashboard routes
 are guarded client-side for UX and protected API operations are verified again
-on the server. Reset links and email verification are one-time Supabase flows.
+on the server. Password reset continues to use Supabase email links.
 
 The public contact form opens an email draft and does not store or submit
 messages to the backend. Set `VITE_PUBLIC_CONTACT_EMAIL` in `.env` to enable it.
@@ -149,5 +158,8 @@ supabase/
   migrations/    Idempotent registration function and profile RLS
 ```
 
-The API exposes a process health check, authenticated profile lookup and
-registration completion, and admin-only NGO/partner approval operations.
+The API also provides authenticated donor and NGO dashboard data and actions,
+partner delivery workflows, administration, notifications, and impact
+statistics. See [`backend/API.md`](./backend/API.md) for all routes and access
+requirements. Donor and NGO pages use live API/Supabase data; the matching score
+is a documented rules-based score rather than a trained AI model.

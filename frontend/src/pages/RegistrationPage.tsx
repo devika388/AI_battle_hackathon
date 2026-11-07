@@ -107,10 +107,7 @@ export function RegistrationPage() {
       const { data: result, error } = await getSupabaseClient().auth.signUp({
         email,
         password,
-        options: {
-          data: { registration },
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
-        },
+        options: { data: { registration } },
       });
       if (error) {
         setMessage(error.message);
@@ -118,10 +115,6 @@ export function RegistrationPage() {
       }
 
       if (result.session) {
-        if (!result.user?.email_confirmed_at) {
-          navigate("/auth/verify", { state: { email } });
-          return;
-        }
         await requestJson<{ profile: { role: string } }>(
           "/auth/complete-registration",
           {
@@ -134,7 +127,9 @@ export function RegistrationPage() {
         return;
       }
 
-      navigate("/auth/verify", { state: { email } });
+      setMessage(
+        "Email confirmation is still enabled in Supabase. Turn off Confirm email under Authentication → Providers → Email, then try registering again.",
+      );
     } catch (error) {
       setMessage(
         error instanceof ApiError
