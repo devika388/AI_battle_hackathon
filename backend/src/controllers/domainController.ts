@@ -23,9 +23,11 @@ import {
   uploadDeliveryProof,
 } from "../services/deliveryService.js";
 import {
+  getImpactDashboard,
   getImpactStatistics,
 } from "../services/impactService.js";
 import {
+  getUnreadNotificationCount,
   listNotifications,
   markAllNotificationsRead,
   markNotificationRead,
@@ -303,6 +305,7 @@ export async function listNotificationsController(
   const { limit, offset } = page(request);
   response.json({
     notifications: await listNotifications(user.id, limit, offset),
+    unread_count: await getUnreadNotificationCount(user.id),
   });
 }
 
@@ -330,5 +333,6 @@ export async function impactController(request: Request, response: Response) {
   if (!profile) throw new HttpError("User profile not found.", 404);
   response.json({
     impact: await getImpactStatistics(user.id, profile.role as AppRole),
+    report: await getImpactDashboard(user.id, profile.role as AppRole),
   });
 }

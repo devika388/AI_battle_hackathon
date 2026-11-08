@@ -59,18 +59,31 @@ async function loadAllRows<T>(
 
 export async function getAdminDashboardReport() {
   const supabase = getSupabaseAdmin();
-  const [profiles, donations, ngos, partners, assignments, requests, impacts] = await Promise.all([
+  const [profiles, donations, ngos, partners, assignments, requests, impacts, receipts] = await Promise.all([
     loadAllRows((start, end) => supabase.from("profiles").select("id, role, is_suspended, full_name").range(start, end), "Could not build user reports:"),
     loadAllRows((start, end) => supabase.from("donations").select("id, created_at, status, food_category").range(start, end), "Could not build donation reports:"),
     loadAllRows((start, end) => supabase.from("ngo_profiles").select("id, user_id, organization_name, is_verified").range(start, end), "Could not build NGO reports:"),
     loadAllRows((start, end) => supabase.from("partner_profiles").select("id, user_id, vehicle_type").range(start, end), "Could not build partner reports:"),
-    loadAllRows((start, end) => supabase.from("donation_assignments").select("id, ngo_id, partner_id, status").range(start, end), "Could not build assignment reports:"),
+    loadAllRows((start, end) => supabase.from("donation_assignments").select("id, donation_id, ngo_id, partner_id, status").range(start, end), "Could not build assignment reports:"),
     loadAllRows((start, end) => supabase.from("rescue_requests").select("id, status, created_at").range(start, end), "Could not build rescue request reports:"),
     loadAllRows((start, end) => supabase.from("impact_records").select("donation_id, food_saved_kg, meals_provided").range(start, end), "Could not build impact reports:"),
+    loadAllRows((start, end) => supabase.from("status_events").select("donation_id").eq("status", "ngo_confirmed_receipt").range(start, end), "Could not verify completed impact records:"),
   ]);
   const profilesById = new Map(profiles.map((profile) => [profile.id, profile]));
+  const completedDonationIds = new Set(donations
+    .filter((donation) => donation.status === "completed")
+    .map((donation) => donation.id));
+  const completedAssignmentDonationIds = new Set(assignments
+    .filter((assignment) => assignment.status === "completed")
+    .map((assignment) => assignment.donation_id));
+  const confirmedDonationIds = new Set(receipts.map((event) => event.donation_id));
+  const confirmedImpacts = impacts.filter((impact) =>
+    completedDonationIds.has(impact.donation_id) &&
+    completedAssignmentDonationIds.has(impact.donation_id) &&
+    confirmedDonationIds.has(impact.donation_id),
+  );
   const sumField = (field: "food_saved_kg" | "meals_provided") =>
-    impacts.reduce((sum, item) => sum + Number(item[field] ?? 0), 0);
+    confirmedImpacts.reduce((sum, item) => sum + Number(item[field] ?? 0), 0);
   const days = new Map<string, number>();
   const categories = new Map<string, number>();
   const donationDateById = new Map(donations.map((donation) => [donation.id, donation.created_at.slice(0, 10)]));
@@ -80,7 +93,7 @@ export async function getAdminDashboardReport() {
     days.set(day, (days.get(day) ?? 0) + 1);
     categories.set(donation.food_category, (categories.get(donation.food_category) ?? 0) + 1);
   }
-  for (const impact of impacts) {
+  for (const impact of confirmedImpacts) {
     const date = donationDateById.get(impact.donation_id);
     if (!date) continue;
     const totals = impactByDay.get(date) ?? { food_saved_kg: 0, meals_provided: 0 };

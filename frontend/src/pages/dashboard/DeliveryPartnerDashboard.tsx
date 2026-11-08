@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { Badge, Button, Card, InputField } from "../../components/ui";
 import { FoodPassport } from "../../components/FoodPassport";
+import { DonationMap } from "../../components/DonationMap";
+import { ImpactDashboard } from "../../components/ImpactDashboard";
 import { useAuth } from "../../auth/AuthContext";
 import { dashboardErrorMessage, dashboardRequest } from "../../services/dashboardApi";
 import type { DonationDetails, NotificationItem } from "../../types/food";
@@ -10,6 +12,7 @@ import {
   DashboardState,
   StatCard,
   useDashboardTab,
+  useNotificationSync,
   type DashboardTab,
 } from "./DashboardShell";
 
@@ -30,11 +33,15 @@ interface Assignment {
     pickup_address: string;
     city: string | null;
     expiry_time: string;
+    pickup_latitude?: number | null;
+    pickup_longitude?: number | null;
   } | null;
   ngo_profiles?: {
     organization_name: string | null;
     address: string | null;
     city: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
   } | null;
   delivery_proofs?: {
     id: string;
@@ -90,6 +97,7 @@ export function DeliveryPartnerDashboard() {
   const [available, setAvailable] = useState<Assignment[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  useNotificationSync(setNotifications);
   const [partnerProfile, setPartnerProfile] = useState<PartnerProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -161,6 +169,7 @@ export function DeliveryPartnerDashboard() {
       {tab === "notifications" ? (
         <Notifications items={notifications} loading={loading} error={error} onRetry={load} onChanged={load} />
       ) : null}
+      {tab === "impact" ? <ImpactDashboard /> : null}
       {tab === "profile" ? (
         <PartnerSettings
           initialProfile={partnerProfile}
@@ -286,6 +295,26 @@ function AssignmentsList({
                 <Info label="Assignment status" value={nice(assignment.status)} />
                 <Info label="Delivery stage" value={nice(assignment.delivery_stage ?? assignment.status)} />
                 {assignment.estimated_duration_minutes ? <Info label="Partner travel estimate" value={`${assignment.estimated_duration_minutes} minutes`} /> : null}
+              </div>
+              <div className="mt-4">
+                <h3 className="mb-2 text-sm font-semibold">Delivery route</h3>
+                <DonationMap
+                  locations={[
+                    {
+                      label: "Pickup",
+                      address: `${assignment.donations?.pickup_address ?? ""}, ${assignment.donations?.city ?? ""}`,
+                      latitude: assignment.donations?.pickup_latitude,
+                      longitude: assignment.donations?.pickup_longitude,
+                    },
+                    {
+                      label: "Delivery destination",
+                      address: `${assignment.ngo_profiles?.address ?? ""}, ${assignment.ngo_profiles?.city ?? ""}`,
+                      latitude: assignment.ngo_profiles?.latitude,
+                      longitude: assignment.ngo_profiles?.longitude,
+                    },
+                  ]}
+                  route
+                />
               </div>
               {available ? (
                 <div className="mt-4 flex flex-wrap items-end gap-3">
@@ -462,6 +491,7 @@ function Notifications({
     try {
       await dashboardRequest(`/notifications/${id}/read`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ is_read: true }) });
       onChanged();
+      window.dispatchEvent(new CustomEvent("foodbridge:notifications-read", { detail: id }));
     } catch (failure) { setActionError(dashboardErrorMessage(failure, "Could not update notification.")); }
   };
   return (

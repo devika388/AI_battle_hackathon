@@ -3,7 +3,6 @@ import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { AuthLayout, FormMessage, FormSubmit } from "../components/auth/AuthLayout";
 import { InputField } from "../components/ui";
-import { requestJson } from "../services/apiClient";
 import { getSupabaseClient } from "../services/supabaseClient";
 import { dashboardPath } from "../auth/routeGuards";
 
@@ -43,7 +42,7 @@ export function LoginPage() {
           /email not confirmed/i.test(error.message)
             ? "Email confirmation is still enabled in Supabase. Turn off Confirm email under Authentication → Providers → Email, then try again."
             : /invalid login credentials/i.test(error.message)
-              ? "Email or password is incorrect."
+            ? "Email or password is incorrect. If you already registered, try Forgot password or check whether Supabase requires email confirmation."
             : error.message,
         );
         return;
@@ -53,22 +52,13 @@ export function LoginPage() {
         return;
       }
 
-      const profile = await refreshProfile(data.session.access_token);
+      const profile = await refreshProfile(
+        data.session.access_token,
+        data.user.user_metadata?.registration,
+      );
       if (!profile) {
-        const registration = data.user.user_metadata?.registration;
-        if (registration) {
-          await requestJson("/auth/complete-registration", {
-            method: "POST",
-            headers: { Authorization: "Bearer " + data.session.access_token },
-          });
-          const completedProfile = await refreshProfile(data.session.access_token);
-          if (completedProfile) {
-            navigate(dashboardPath(completedProfile), { replace: true });
-            return;
-          }
-        }
         await getSupabaseClient().auth.signOut();
-        setMessage("Your account profile is not set up. Please register again or contact support.");
+        setMessage("We couldn't find saved registration details for this account. Contact support rather than registering again with the same email.");
         return;
       }
 

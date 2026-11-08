@@ -2,6 +2,8 @@ import { z } from "zod";
 
 const uuid = z.string().uuid();
 const nonEmpty = (max: number) => z.string().trim().min(1).max(max);
+const latitude = z.coerce.number().min(-90).max(90);
+const longitude = z.coerce.number().min(-180).max(180);
 const pageQuery = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).max(100_000).default(0),
@@ -33,14 +35,23 @@ export const profileUpdateSchema = z
     preferred_categories: z.array(nonEmpty(80)).max(20).optional(),
     max_daily_quantity: z.coerce.number().positive().max(1_000_000).nullable().optional(),
     capacity_unit: nonEmpty(40).nullable().optional(),
+    latitude: latitude.nullable().optional(),
+    longitude: longitude.nullable().optional(),
   })
+  .refine(
+    (value) =>
+      (value.latitude === undefined && value.longitude === undefined) ||
+      (value.latitude === null && value.longitude === null) ||
+      (typeof value.latitude === "number" && typeof value.longitude === "number"),
+    "Provide both organization coordinates or clear both.",
+  )
   .refine((value) => Object.keys(value).length > 0, "Provide at least one profile field.");
 
 export const partnerAvailabilitySchema = z.object({
   availability: z.boolean(),
 });
 
-export const donationCreateSchema = z.object({
+const donationCreateFields = z.object({
   food_name: nonEmpty(160),
   description: z.string().trim().max(2000).optional().default(""),
   food_category: nonEmpty(80),
@@ -49,6 +60,8 @@ export const donationCreateSchema = z.object({
   pickup_address: nonEmpty(1000),
   city: nonEmpty(120),
   pincode: z.string().trim().regex(/^[0-9A-Za-z -]{4,12}$/),
+  pickup_latitude: latitude.nullable().optional(),
+  pickup_longitude: longitude.nullable().optional(),
   preparation_time: z.coerce.date(),
   expiry_time: z.coerce.date().refine((value) => value.getTime() > Date.now(), {
     message: "Expiry time must be in the future.",
@@ -56,7 +69,14 @@ export const donationCreateSchema = z.object({
   image_url: z.string().url().max(2000).optional().nullable(),
 });
 
-export const donationUpdateSchema = donationCreateSchema
+export const donationCreateSchema = donationCreateFields.refine(
+  (value) =>
+    (value.pickup_latitude == null && value.pickup_longitude == null) ||
+    (typeof value.pickup_latitude === "number" && typeof value.pickup_longitude === "number"),
+  "Provide both pickup coordinates or leave both blank.",
+);
+
+export const donationUpdateSchema = donationCreateFields
   .partial()
   .omit({ expiry_time: true })
   .extend({
@@ -68,6 +88,12 @@ export const donationUpdateSchema = donationCreateSchema
       })
       .optional(),
   })
+  .refine(
+    (value) =>
+      (value.pickup_latitude == null && value.pickup_longitude == null) ||
+      (typeof value.pickup_latitude === "number" && typeof value.pickup_longitude === "number"),
+    "Provide both pickup coordinates or leave both blank.",
+  )
   .refine((value) => Object.keys(value).length > 0, "Provide at least one donation field.");
 
 export const deliveryStatusSchema = z.object({

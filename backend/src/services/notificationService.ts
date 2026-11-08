@@ -17,6 +17,16 @@ export async function listNotifications(
   return data ?? [];
 }
 
+export async function getUnreadNotificationCount(userId: string) {
+  const { count, error } = await getSupabaseAdmin()
+    .from("notifications")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("is_read", false);
+  if (error) failDatabase(error, "Could not count unread notifications:");
+  return count ?? 0;
+}
+
 export async function markNotificationRead(userId: string, notificationId: string) {
   const { data, error } = await getSupabaseAdmin()
     .from("notifications")

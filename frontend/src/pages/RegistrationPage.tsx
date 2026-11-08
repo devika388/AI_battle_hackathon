@@ -110,7 +110,11 @@ export function RegistrationPage() {
         options: { data: { registration } },
       });
       if (error) {
-        setMessage(error.message);
+        setMessage(
+          /user already registered/i.test(error.message)
+            ? "This email already has an account. Sign in instead, or use Forgot password if you don't remember the password."
+            : error.message,
+        );
         return;
       }
 
@@ -122,13 +126,16 @@ export function RegistrationPage() {
             headers: { Authorization: `Bearer ${result.session.access_token}` },
           },
         );
-        await refreshProfile(result.session.access_token);
+        await refreshProfile(
+          result.session.access_token,
+          result.user?.user_metadata?.registration,
+        );
         navigate("/dashboard", { replace: true });
         return;
       }
 
       setMessage(
-        "Email confirmation is still enabled in Supabase. Turn off Confirm email under Authentication → Providers → Email, then try registering again.",
+        "Your account may have been created, but Supabase requires email confirmation. Check your inbox, confirm your email, then sign in. Don't submit registration again with this email.",
       );
     } catch (error) {
       setMessage(
@@ -209,8 +216,8 @@ export function RegistrationPage() {
           Create account
         </FormSubmit>
         <p className="text-xs leading-5 text-slate-500">
-          NGOs and delivery partners remain pending until an administrator
-          approves their registration. Admin accounts cannot be created here.
+          NGO and delivery partner accounts are active after registration.
+          Admin accounts cannot be created here.
         </p>
       </form>
       <p className="mt-6 text-center text-sm text-slate-600">

@@ -29,6 +29,9 @@ export interface AuthContextValue {
   profile: AuthProfile | null;
   configError: string | null;
   sessionNotice: string | null;
-  refreshProfile: (accessToken?: string) => Promise<AuthProfile | null>;
+  refreshProfile: (
+    accessToken?: string,
+    registration?: unknown,
+  ) => Promise<AuthProfile | null>;
   signOut: () => Promise<void>;
 }

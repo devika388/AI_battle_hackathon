@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import { useNavigate, useParams } from "react-router-dom";
 import { Badge, Button, Card, InputField } from "../../components/ui";
 import { FoodPassport } from "../../components/FoodPassport";
+import { DonationMap } from "../../components/DonationMap";
+import { ImpactDashboard } from "../../components/ImpactDashboard";
 import { useAuth } from "../../auth/AuthContext";
 import {
   dashboardErrorMessage,
@@ -22,6 +24,7 @@ import {
   DashboardState,
   StatCard,
   useDashboardTab,
+  useNotificationSync,
 } from "./DashboardShell";
 
 const foodCategories = [
@@ -70,6 +73,7 @@ export function NgoDashboard() {
   const [matches, setMatches] = useState<NgoMatch[]>([]);
   const [accepted, setAccepted] = useState<AcceptedRecord[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  useNotificationSync(setNotifications);
   const [impact, setImpact] = useState<ImpactTotals | null>(null);
   const [ngoProfile, setNgoProfile] = useState<NgoProfileDetails | null>(null);
   const [loading, setLoading] = useState(true);
@@ -163,6 +167,10 @@ export function NgoDashboard() {
       {tab === "available" ? (
         <AvailableDonations
           matches={matches}
+          ngoLocation={ngoProfile ? {
+            latitude: ngoProfile.latitude,
+            longitude: ngoProfile.longitude,
+          } : null}
           loading={loading}
           error={loadError}
           onRetry={loadDashboard}
@@ -192,7 +200,7 @@ export function NgoDashboard() {
           ))}
         />
       ) : null}
-      {tab === "impact" ? <NgoImpact impact={impact} loading={loading} error={loadError} onRetry={loadDashboard} /> : null}
+      {tab === "impact" ? <ImpactDashboard /> : null}
       {tab === "profile" ? (
         <NgoProfile
           profile={ngoProfile}
@@ -314,6 +322,7 @@ function FoodThumb({ donation }: { donation: Donation }) {
 
 function AvailableDonations({
   matches,
+  ngoLocation,
   loading,
   error,
   onRetry,
@@ -321,6 +330,7 @@ function AvailableDonations({
   onOpen,
 }: {
   matches: NgoMatch[];
+  ngoLocation: { latitude: number | null; longitude: number | null } | null;
   loading: boolean;
   error: string;
   onRetry: () => void;
@@ -331,9 +341,28 @@ function AvailableDonations({
   const [location, setLocation] = useState("");
   const [minimumQuantity, setMinimumQuantity] = useState("");
   const [expiryWithin, setExpiryWithin] = useState("all");
+  const [radius, setRadius] = useState("all");
   const [search, setSearch] = useState("");
   const [busyId, setBusyId] = useState("");
   const [actionError, setActionError] = useState("");
+  const ngoLatitude = ngoLocation?.latitude;
+  const ngoLongitude = ngoLocation?.longitude;
+  const hasNgoCoordinates = typeof ngoLatitude === "number" &&
+    typeof ngoLongitude === "number";
+  const withinRadius = (donation: Donation) => {
+    if (radius === "all") return true;
+    if (!hasNgoCoordinates) return true;
+    if (typeof donation.pickup_latitude !== "number" ||
+        typeof donation.pickup_longitude !== "number") return false;
+    const toRadians = (degrees: number) => degrees * Math.PI / 180;
+    const latitudeDelta = toRadians(donation.pickup_latitude - ngoLatitude);
+    const longitudeDelta = toRadians(donation.pickup_longitude - ngoLongitude);
+    const a = Math.sin(latitudeDelta / 2) ** 2 +
+      Math.cos(toRadians(ngoLatitude)) *
+      Math.cos(toRadians(donation.pickup_latitude)) *
+      Math.sin(longitudeDelta / 2) ** 2;
+    return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) <= Number(radius);
+  };
   const filtered = matches.filter(({ donation }) => {
     const text = `${donation.food_name} ${donation.id} ${donation.city ?? ""} ${donation.food_category}`.toLowerCase();
     const remainingHours = (new Date(donation.expiry_time).getTime() - Date.now()) / 3_600_000;
@@ -342,6 +371,7 @@ function AvailableDonations({
       (!location || `${donation.city ?? ""} ${donation.pickup_address}`.toLowerCase().includes(location.toLowerCase())) &&
       (!minimumQuantity || Number(donation.quantity) >= Number(minimumQuantity)) &&
       (expiryWithin === "all" || remainingHours <= Number(expiryWithin)) &&
+      withinRadius(donation) &&
       (!search || text.includes(search.toLowerCase()))
     );
   });
@@ -367,7 +397,7 @@ function AvailableDonations({
         description="Browse available donations and see exactly how each match score was calculated."
       />
       <Card className="mb-5 p-4 sm:p-5">
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
           <input aria-label="Search available donations" className="ds-field" onChange={(event) => setSearch(event.currentTarget.value)} placeholder="Search food or ID" value={search} />
           <select aria-label="Food category" className="ds-field" onChange={(event) => setCategory(event.currentTarget.value)} value={category}>
             <option value="all">All categories</option>
@@ -381,8 +411,25 @@ function AvailableDonations({
             <option value="8">Expires within 8 hours</option>
             <option value="4">Expires within 4 hours</option>
           </select>
+          <select aria-label="Nearby donation distance" className="ds-field" disabled={!hasNgoCoordinates} onChange={(event) => setRadius(event.currentTarget.value)} value={radius}>
+            <option value="all">Any distance</option>
+            <option value="10">Within 10 km</option>
+            <option value="25">Within 25 km</option>
+            <option value="50">Within 50 km</option>
+          </select>
         </div>
-        <p className="mt-3 text-xs leading-5 text-slate-500">Distance is not shown because the current FoodBridge database stores city and address, but not map coordinates.</p>
+        <p className="mt-3 text-xs leading-5 text-slate-500">
+          Distance uses saved coordinates and straight-line distance only. {!hasNgoCoordinates ? "Add your coordinates in Profile to enable radius filtering." : "Donations without coordinates remain visible when filtering by distance is disabled."}
+        </p>
+      </Card>
+      <Card className="mb-5 p-4 sm:p-5">
+        <h2 className="mb-3 font-semibold">Donation pickup map</h2>
+        <DonationMap locations={filtered.map(({ donation }) => ({
+          label: donation.food_name,
+          address: `${donation.pickup_address}, ${donation.city ?? ""}`,
+          latitude: donation.pickup_latitude,
+          longitude: donation.pickup_longitude,
+        }))} />
       </Card>
       {actionError ? <p className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert">{actionError}</p> : null}
       {loading || error ? <DashboardState loading={loading} error={error} onRetry={onRetry} /> : !filtered.length ? <DashboardState empty /> : (
@@ -649,6 +696,7 @@ function NgoNotifications({
     try {
       await dashboardRequest(`/notifications/${id}/read`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ is_read: true }) });
       onRead(id);
+      window.dispatchEvent(new CustomEvent("foodbridge:notifications-read", { detail: id }));
     } catch (error) {
       setActionError(dashboardErrorMessage(error, "Could not update notification."));
     }
@@ -665,32 +713,6 @@ function NgoNotifications({
             {!item.is_read ? <button className="text-xs font-semibold text-forest" onClick={() => void markRead(item.id)} type="button">Mark read</button> : null}
           </Card>
         ))}</div>
-      )}
-    </>
-  );
-}
-
-function NgoImpact({
-  impact,
-  loading,
-  error,
-  onRetry,
-}: {
-  impact: ImpactTotals | null;
-  loading: boolean;
-  error: string;
-  onRetry: () => void;
-}) {
-  return (
-    <>
-      <DashboardHeading eyebrow="Measured impact" title="Community impact" description="Totals from recorded donation impact—not estimates generated by the dashboard." />
-      {loading || error ? <DashboardState loading={loading} error={error} onRetry={onRetry} /> : (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard label="Food saved" value={`${Number(impact?.food_saved_kg ?? 0).toLocaleString()} kg`} />
-          <StatCard label="Meals distributed" value={Number(impact?.meals_provided ?? 0).toLocaleString()} tone="butter" />
-          <StatCard label="CO₂ avoided" value={`${Number(impact?.co2_saved_kg ?? 0).toLocaleString()} kg`} tone="powder" />
-          <StatCard label="Donations with impact" value={impact?.donations ?? 0} tone="blush" />
-        </div>
       )}
     </>
   );
@@ -720,6 +742,8 @@ function NgoProfile({
   const [organization, setOrganization] = useState(profile?.organization_name ?? "");
   const [city, setCity] = useState(profile?.city ?? "");
   const [address, setAddress] = useState(profile?.address ?? "");
+  const [latitude, setLatitude] = useState(profile?.latitude?.toString() ?? "");
+  const [longitude, setLongitude] = useState(profile?.longitude?.toString() ?? "");
   const navigate = useNavigate();
   useEffect(() => {
     setCategories(profile?.preferred_categories ?? []);
@@ -728,6 +752,8 @@ function NgoProfile({
     setOrganization(profile?.organization_name ?? "");
     setCity(profile?.city ?? "");
     setAddress(profile?.address ?? "");
+    setLatitude(profile?.latitude?.toString() ?? "");
+    setLongitude(profile?.longitude?.toString() ?? "");
   }, [profile]);
   const save = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -744,6 +770,8 @@ function NgoProfile({
           organization_name: organization,
           address,
           city,
+          latitude: latitude ? Number(latitude) : null,
+          longitude: longitude ? Number(longitude) : null,
           preferred_categories: categories,
           max_daily_quantity: capacity ? Number(capacity) : null,
           capacity_unit: capacity ? capacityUnit || null : null,
@@ -753,10 +781,14 @@ function NgoProfile({
         ...(profile ?? {
           registration_number: null,
           is_verified: false,
+          latitude: null,
+          longitude: null,
         }),
         organization_name: organization,
         address,
         city,
+        latitude: latitude ? Number(latitude) : null,
+        longitude: longitude ? Number(longitude) : null,
         preferred_categories: categories,
         max_daily_quantity: capacity ? Number(capacity) : null,
         capacity_unit: capacity ? capacityUnit || null : null,
@@ -783,6 +815,8 @@ function NgoProfile({
             <InputField label="Organization name" name="ngo-name" onChange={(event) => setOrganization(event.currentTarget.value)} required value={organization} />
             <InputField label="City" name="ngo-city" onChange={(event) => setCity(event.currentTarget.value)} required value={city} />
             <InputField label="Daily capacity" hint="Optional; donor quantity units" name="ngo-capacity" min="0.01" onChange={(event) => setCapacity(event.currentTarget.value)} type="number" value={capacity} />
+            <InputField label="Organization latitude (optional)" name="ngo-latitude" min="-90" max="90" step="any" onChange={(event) => setLatitude(event.currentTarget.value)} type="number" value={latitude} />
+            <InputField label="Organization longitude (optional)" name="ngo-longitude" min="-180" max="180" step="any" onChange={(event) => setLongitude(event.currentTarget.value)} type="number" value={longitude} />
             <div>
               <label className="mb-2 block text-sm font-semibold" htmlFor="ngo-capacity-unit">Capacity unit</label>
               <select className="ds-field" id="ngo-capacity-unit" onChange={(event) => setCapacityUnit(event.currentTarget.value)} value={capacityUnit}>
@@ -795,6 +829,7 @@ function NgoProfile({
             <label className="mb-2 block text-sm font-semibold" htmlFor="ngo-address">Organization address</label>
             <textarea className="ds-field min-h-20" id="ngo-address" onChange={(event) => setAddress(event.currentTarget.value)} required value={address} />
           </div>
+          <p className="text-xs leading-5 text-slate-500">Coordinates must come from a trusted source. Leave both blank if unknown; no location is inferred from your address.</p>
           <fieldset>
             <legend className="mb-2 text-sm font-semibold">Preferred food categories</legend>
             <p className="mb-3 text-xs text-slate-500">Leave all unchecked to receive a neutral category score for every food type.</p>

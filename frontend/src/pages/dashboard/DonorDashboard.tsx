@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import { useNavigate, useParams } from "react-router-dom";
 import { Badge, Button, Card, InputField, SelectField } from "../../components/ui";
 import { FoodPassport } from "../../components/FoodPassport";
+import { ImpactDashboard } from "../../components/ImpactDashboard";
 import { useAuth } from "../../auth/AuthContext";
 import {
   dashboardErrorMessage,
@@ -19,6 +20,7 @@ import {
   DashboardShell,
   DashboardState,
   StatCard,
+  useNotificationSync,
   useDashboardTab,
 } from "./DashboardShell";
 
@@ -63,6 +65,7 @@ export function DonorDashboard() {
   const navigate = useNavigate();
   const [donations, setDonations] = useState<Donation[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  useNotificationSync(setNotifications);
   const [impact, setImpact] = useState<ImpactTotals | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -159,7 +162,7 @@ export function DonorDashboard() {
           )}
         />
       ) : null}
-      {tab === "impact" ? <ImpactPage impact={impact} loading={loading} error={loadError} onRetry={loadDashboard} /> : null}
+      {tab === "impact" ? <ImpactDashboard /> : null}
       {tab === "profile" ? (
         <ProfilePage
           fallbackName={profile?.full_name ?? ""}
@@ -333,6 +336,8 @@ function CreateDonation({ onCreated }: { onCreated: (donation: Donation) => void
           pickup_address: values.get("pickup_address"),
           city: values.get("city"),
           pincode: values.get("pincode"),
+          pickup_latitude: values.get("pickup_latitude") ? Number(values.get("pickup_latitude")) : null,
+          pickup_longitude: values.get("pickup_longitude") ? Number(values.get("pickup_longitude")) : null,
           image_url: imageUrl,
         }),
       });
@@ -397,6 +402,9 @@ function CreateDonation({ onCreated }: { onCreated: (donation: Donation) => void
             </div>
             <InputField label="City" name="city" placeholder="City" required maxLength={120} />
             <InputField label="Pincode" name="pincode" placeholder="Postal code" required minLength={4} maxLength={12} />
+            <InputField label="Pickup latitude (optional)" name="pickup_latitude" type="number" step="any" min="-90" max="90" />
+            <InputField label="Pickup longitude (optional)" name="pickup_longitude" type="number" step="any" min="-180" max="180" />
+            <p className="text-xs leading-5 text-slate-500 md:col-span-2">Enter both coordinates from a trusted source to place this pickup on the map. Leave both blank if unknown; FoodBridge will not estimate them.</p>
             <div className="md:col-span-2">
               <label className="mb-2 block text-sm font-semibold text-charcoal" htmlFor="food-image">Food image <span className="font-normal text-slate-500">(optional)</span></label>
               <input
@@ -628,6 +636,7 @@ function Notifications({
     try {
       await dashboardRequest(`/notifications/${id}/read`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ is_read: true }) });
       onRead(id);
+      window.dispatchEvent(new CustomEvent("foodbridge:notifications-read", { detail: id }));
     } catch (readError) {
       setActionError(dashboardErrorMessage(readError, "Could not update notification."));
     }
@@ -649,32 +658,6 @@ function Notifications({
           {!item.is_read ? <button className="shrink-0 text-xs font-semibold text-forest hover:underline" onClick={() => void markRead(item.id)} type="button">Mark read</button> : null}
         </Card>
       ))}</div> : null}
-    </>
-  );
-}
-
-function ImpactPage({
-  impact,
-  loading,
-  error,
-  onRetry,
-}: {
-  impact: ImpactTotals | null;
-  loading: boolean;
-  error: string;
-  onRetry: () => void;
-}) {
-  return (
-    <>
-      <DashboardHeading eyebrow="Measured together" title="Your impact" description="Impact totals are calculated from completed platform impact records." />
-      {loading || error ? <DashboardState loading={loading} error={error} onRetry={onRetry} /> : (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard label="Food saved" value={`${Number(impact?.food_saved_kg ?? 0).toLocaleString()} kg`} />
-          <StatCard label="Meals provided" value={Number(impact?.meals_provided ?? 0).toLocaleString()} tone="butter" />
-          <StatCard label="CO₂ avoided" value={`${Number(impact?.co2_saved_kg ?? 0).toLocaleString()} kg`} tone="powder" />
-          <StatCard label="Donations with impact" value={impact?.donations ?? 0} tone="blush" />
-        </div>
-      )}
     </>
   );
 }

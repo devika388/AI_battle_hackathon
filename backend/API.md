@@ -17,13 +17,13 @@ errors use `{ "error": "..." }`.
 | GET | `/auth/me` | Signed-in | Current Auth user and profile |
 | POST | `/auth/complete-registration` | Signed-in | Complete a validated registration |
 | GET | `/profile` | Signed-in | Current profile and role-specific details |
-| PATCH | `/profile` | Signed-in | Update `full_name`/`phone` and permitted own subtype fields |
+| PATCH | `/profile` | Signed-in | Update `full_name`/`phone`, permitted own subtype fields, and optional NGO map coordinates |
 
 ## Donations and NGOs
 
 | Method | Path | Access | Purpose |
 |---|---|---|---|
-| POST | `/donations` | Donor | Create a future-expiring donation |
+| POST | `/donations` | Donor | Create a future-expiring donation; optional pickup coordinates must be supplied as a valid latitude/longitude pair |
 | GET | `/donations/eligible` | Verified NGO | Prepared donations with at least two hours before donor-provided expiry |
 | GET | `/donations/mine` | Donor | Donor donation history |
 | GET | `/donations/:donationId` | Donor, NGO, assigned partner, admin | Donation and status history, scoped to access |
@@ -109,13 +109,35 @@ All `/admin` routes require an active profile whose database role is
 
 | Method | Path | Access | Purpose |
 |---|---|---|---|
-| GET | `/notifications` | Signed-in | Current user's notifications |
+| GET | `/notifications` | Signed-in | Current user's notifications and unread count |
 | PATCH | `/notifications/:notificationId/read` | Signed-in | Mark own notification read |
 | POST | `/notifications/read-all` | Signed-in | Mark all own notifications read |
-| GET | `/impact` | Donor, NGO, approved partner, admin | Scoped food, meals, CO2, and donation totals |
+| GET | `/impact` | Donor, NGO, approved partner, admin | Scoped confirmed impact totals, chart/report records, and rescue outcomes |
 
-Impact totals are queried from `impact_records`; they are not estimates
-fabricated by the API.
+Impact totals and reports only include `impact_records` for completed donations
+whose NGO receipt was confirmed. CO2 is explicitly an estimate copied from
+`impact_records.co2_saved_kg`; FoodBridge applies no conversion factor or
+independent certification. The CSV download in the dashboard contains only the
+current account's authorized records.
+
+The shared dashboard header polls notifications every 30 seconds and on window
+focus. Database events are deduplicated by event key, and notification API
+queries always filter by the signed-in user ID.
+
+## Maps and location
+
+Maps use Leaflet and OpenStreetMap. Donors may explicitly enter a pickup
+latitude/longitude pair when creating a donation; verified NGOs may save their
+organization coordinates in Profile. Coordinates are optional and validated
+against geographic ranges. FoodBridge does not geocode addresses or infer
+coordinates. If coordinates are missing, the UI shows the saved address and an
+OpenStreetMap address-search link instead of a fabricated pin.
+
+NGOs can discover donations within a selected straight-line radius when both
+their own and the donation's coordinates are present. Delivery partner maps
+show saved pickup/destination coordinates and a dashed straight-line visual
+when possible; this is not a road route or ETA guarantee. Saved addresses
+remain visible when coordinates are unavailable.
 
 ## Supabase setup and security
 
@@ -126,6 +148,7 @@ Run these files in the Supabase SQL Editor, in order:
 3. `supabase/migrations/20261107222000_foodbridge_dashboard_fields.sql`
 4. `supabase/migrations/20261107234000_admin_delivery_dashboard.sql`
 5. `supabase/migrations/20261108130000_foodbridge_rescue_passport.sql`
+6. `supabase/migrations/20261108140000_foodbridge_engagement_location.sql`
 
 The second migration adds `profiles.is_suspended`, backend-only transaction
 functions, and additive policies. It does not create, drop, or redefine
@@ -138,15 +161,15 @@ active until the migrations have actually been run in Supabase.**
 The third migration adds donation preparation time, city, and pincode fields,
 NGO category and capacity preferences, and the trusted functions used to
 create donations, decline available donations, and confirm NGO receipt. NGO
-available-donation matching is a transparent rules-based score; city is used
-as a location proxy because the schema has no map coordinates. Declined
+available-donation matching is a transparent rules-based score and uses city
+for matching; optional saved coordinates power map and radius features. Declined
 donations are hidden from that NGO's subsequent available list.
 
 The fourth migration adds verification review status/notes, private delivery
 proof receiver names, persisted delivery checkpoints, and the trusted stage
-transition function. It also synchronizes completed statuses and notifies the
-assigned NGO when a partner marks a delivery delivered. Review this additive
-migration and apply it before using the partner/admin dashboards.
+transition function. It also synchronizes completed statuses and initially
+notifies the assigned NGO on delivery. The sixth migration replaces that
+notification hook with deduplicated, role-targeted event notifications.
 
 The fifth migration adds rescue escalation/outcome metadata and timeline
 responsible-user/location fields. It also enforces donor-provided preparation

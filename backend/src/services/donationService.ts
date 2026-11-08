@@ -33,6 +33,8 @@ export async function createDonation(userId: string, input: DonationCreate) {
       p_preparation_time: input.preparation_time.toISOString(),
       p_expiry_time: input.expiry_time.toISOString(),
       p_image_url: input.image_url ?? null,
+      p_pickup_latitude: input.pickup_latitude ?? null,
+      p_pickup_longitude: input.pickup_longitude ?? null,
     },
   );
   if (error) failDatabase(error, "Could not create donation:");

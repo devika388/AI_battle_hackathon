@@ -35,7 +35,7 @@ export async function getUserProfile(userId: string) {
   } else if (role === "ngo") {
     const { data, error: detailError } = await supabase
       .from("ngo_profiles")
-      .select("organization_name, registration_number, address, city, is_verified, preferred_categories, max_daily_quantity, capacity_unit")
+      .select("organization_name, registration_number, address, city, latitude, longitude, is_verified, preferred_categories, max_daily_quantity, capacity_unit")
       .eq("user_id", userId)
       .maybeSingle();
     if (detailError) failDatabase(detailError, "Could not load NGO profile details:");
@@ -84,6 +84,8 @@ export async function updateUserProfile(userId: string, input: ProfileUpdate) {
     ...(input.capacity_unit !== undefined
       ? { capacity_unit: input.capacity_unit }
       : {}),
+    ...(input.latitude !== undefined ? { latitude: input.latitude } : {}),
+    ...(input.longitude !== undefined ? { longitude: input.longitude } : {}),
   };
 
   if (Object.keys(subtypeFields).length > 0) {
@@ -101,6 +103,8 @@ export async function updateUserProfile(userId: string, input: ProfileUpdate) {
         "preferred_categories",
         "max_daily_quantity",
         "capacity_unit",
+        "latitude",
+        "longitude",
       ];
     } else if (
       profile.role === "delivery_partner" ||

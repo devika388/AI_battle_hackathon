@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "./AuthContext";
 import { AuthLayout } from "../components/auth/AuthLayout";
@@ -25,8 +26,10 @@ export function ProtectedRoute({
 }: {
   role?: "donor" | "ngo" | "delivery_partner" | "admin";
 }) {
-  const { ready, user, profile, sessionNotice } = useAuth();
+  const { ready, user, profile, sessionNotice, refreshProfile } = useAuth();
   const location = useLocation();
+  const [retryingProfile, setRetryingProfile] = useState(false);
+  const [profileRetryError, setProfileRetryError] = useState("");
 
   if (!ready) {
     return (
@@ -63,16 +66,41 @@ export function ProtectedRoute({
         eyebrow="Account setup"
         title="Profile not available yet."
         description={
-          sessionNotice ??
-          "Your account has no FoodBridge profile. Complete registration or contact support."
+          profileRetryError || sessionNotice ||
+          "Your account has no FoodBridge profile. Retry setup using the registration details saved with your account."
         }
       >
-        <Link
-          className="inline-flex min-h-11 items-center justify-center rounded-2xl bg-forest px-5 text-sm font-semibold text-white"
-          to="/register"
-        >
-          Return to registration
-        </Link>
+        <div className="flex flex-wrap gap-3">
+          <button
+            className="inline-flex min-h-11 items-center justify-center rounded-2xl bg-forest px-5 text-sm font-semibold text-white disabled:opacity-60"
+            disabled={retryingProfile}
+            onClick={() => {
+              setRetryingProfile(true);
+              setProfileRetryError("");
+              void refreshProfile(
+                undefined,
+                user.user_metadata?.registration,
+              ).then((result) => {
+                if (!result) {
+                  setProfileRetryError("No saved registration details were found. Contact support for help recovering this account.");
+                }
+              }).catch((error: unknown) => {
+                setProfileRetryError(
+                  error instanceof Error ? error.message : "Profile setup failed. Please try again.",
+                );
+              }).finally(() => setRetryingProfile(false));
+            }}
+            type="button"
+          >
+            {retryingProfile ? "Retrying setup…" : "Retry profile setup"}
+          </button>
+          <Link
+            className="inline-flex min-h-11 items-center justify-center rounded-2xl border border-forest/20 px-5 text-sm font-semibold text-forest"
+            to="/forgot-password"
+          >
+            Forgot password?
+          </Link>
+        </div>
       </AuthLayout>
     );
   }

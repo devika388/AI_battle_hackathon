@@ -37,7 +37,7 @@ export async function listAvailableAssignments(
 
   const { data, error } = await getSupabaseAdmin()
     .from("donation_assignments")
-    .select("*, donations!inner(*), ngo_profiles(organization_name, address, city)")
+    .select("*, donations!inner(*), ngo_profiles(organization_name, address, city, latitude, longitude)")
     .is("partner_id", null)
     .eq("status", "accepted")
     .eq("donations.status", "matched")
@@ -143,7 +143,7 @@ export async function listPartnerAssignments(
   const partnerId = await requireVerifiedPartner(userId);
   const { data, error } = await getSupabaseAdmin()
     .from("donation_assignments")
-    .select("*, donations(*), ngo_profiles(organization_name, address, city), delivery_proofs(id, notes, receiver_name, delivered_at)")
+    .select("*, donations(*), ngo_profiles(organization_name, address, city, latitude, longitude), delivery_proofs(id, notes, receiver_name, delivered_at)")
     .eq("partner_id", partnerId)
     .order("assigned_at", { ascending: false })
     .range(offset, offset + limit - 1);

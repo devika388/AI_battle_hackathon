@@ -9,6 +9,8 @@ export interface Donation {
   pickup_address: string;
   city: string | null;
   pincode: string | null;
+  pickup_latitude?: number | null;
+  pickup_longitude?: number | null;
   preparation_time: string | null;
   expiry_time: string;
   image_url: string | null;
@@ -83,6 +85,33 @@ export interface ImpactTotals {
   co2_saved_kg: number;
 }
 
+export interface ImpactDashboardData {
+  totals: ImpactTotals;
+  summary: {
+    successful_donations: number;
+    completed_deliveries: number;
+    active_ngo_partners: number;
+    successful_rescues: number;
+    blocked_rescues: number;
+  };
+  records: {
+    donation_id: string;
+    food_category: string;
+    created_at: string;
+    confirmed_at: string;
+    food_saved_kg: number;
+    meals_provided: number;
+    co2_saved_kg: number;
+  }[];
+  rescues: {
+    donation_id: string;
+    outcome: string | null;
+    status: string;
+    created_at: string;
+  }[];
+  co2_assumption: string;
+}
+
 export interface NgoProfileDetails {
   organization_name: string | null;
   registration_number: string | null;
@@ -92,4 +121,6 @@ export interface NgoProfileDetails {
   preferred_categories: string[];
   max_daily_quantity: number | null;
   capacity_unit: string | null;
+  latitude: number | null;
+  longitude: number | null;
 }

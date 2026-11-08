@@ -105,7 +105,11 @@ RLS and must only be available to the backend.
 7. Apply [`supabase/migrations/20261107234000_admin_delivery_dashboard.sql`](./supabase/migrations/20261107234000_admin_delivery_dashboard.sql)
    to add review outcomes, delivery proof details, and persisted route
    checkpoints for the partner/admin dashboards.
-8. Start the frontend and backend with `npm run dev`.
+8. Apply [`supabase/migrations/20261108230000_foodbridge_self_activation.sql`](./supabase/migrations/20261108230000_foodbridge_self_activation.sql)
+   to activate NGO and delivery partner accounts at registration. Existing
+   pending accounts are activated; rejected accounts remain rejected. Admin
+   accounts still cannot be created through public registration.
+9. Start the frontend and backend with `npm run dev`.
 
 The registration handler uses the inspected schema: `profiles.id` is the auth
 user UUID; contact details go in `profiles`; donor, NGO, and vehicle details go
@@ -115,12 +119,10 @@ Registration metadata is validated server-side; only the backend's service-role
 RPC writes profile roles. Existing profile rows are returned unchanged rather
 than duplicated.
 
-NGOs remain unverified using `ngo_profiles.is_verified = false`. Since the
-existing partner table has no approval column, new delivery accounts use the
-`delivery_partner_pending` value in `profiles.role` and are made unavailable
-until an admin approves them through the protected admin dashboard. Public
-registration only permits donor, NGO, and delivery partner roles. To provision
-an initial admin, create the Auth user in Supabase, then assign `admin`
+Public registration only permits donor, NGO, and delivery partner roles. NGOs
+and delivery partners become active immediately after registration; admins can
+still suspend accounts through the protected dashboard. To provision an
+initial admin, create the Auth user in Supabase, then assign `admin`
 to that user's matching `profiles.id` using the trusted Supabase SQL editor.
 There is intentionally no public admin signup or role-change endpoint. Email
 verification is disabled in the application flow for now; re-enable **Confirm

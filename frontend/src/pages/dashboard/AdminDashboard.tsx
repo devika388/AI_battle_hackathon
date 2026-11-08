@@ -5,11 +5,12 @@ import {
 } from "recharts";
 import { Badge, Button, Card } from "../../components/ui";
 import { FoodPassport } from "../../components/FoodPassport";
+import { ImpactDashboard } from "../../components/ImpactDashboard";
 import { useAuth } from "../../auth/AuthContext";
 import { dashboardErrorMessage, dashboardRequest } from "../../services/dashboardApi";
 import type { DonationDetails, NotificationItem } from "../../types/food";
 import {
-  DashboardHeading, DashboardShell, DashboardState, StatCard, useDashboardTab,
+  DashboardHeading, DashboardShell, DashboardState, StatCard, useDashboardTab, useNotificationSync,
 } from "./DashboardShell";
 
 type UserRecord = {
@@ -116,6 +117,7 @@ export function AdminDashboard() {
   const [assignments, setAssignments] = useState<AssignmentRecord[]>([]);
   const [requests, setRequests] = useState<RescueRequest[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  useNotificationSync(setNotifications);
   const [report, setReport] = useState<AdminReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -161,6 +163,7 @@ export function AdminDashboard() {
       {tab === "adminAssignments" ? <AssignmentsSection items={assignments} loading={loading} error={error} onRetry={load} /> : null}
       {tab === "requests" ? <RequestsSection items={requests} loading={loading} error={error} onRetry={load} onChanged={load} /> : null}
       {tab === "reports" ? <Reports report={report} loading={loading} error={error} onRetry={load} /> : null}
+      {tab === "impact" ? <ImpactDashboard /> : null}
       {tab === "notifications" ? <AdminNotifications items={notifications} loading={loading} error={error} onRetry={load} onChanged={load} /> : null}
       {tab === "settings" ? <Settings email={profile?.email ?? ""} fullName={profile?.full_name ?? ""} /> : null}
     </DashboardShell>
@@ -478,7 +481,7 @@ function Reports({ report, loading, error, onRetry }: { report: AdminReport | nu
           <ChartCard title="Food category distribution" subtitle="Donation count by category">
             <ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={report.food_categories} dataKey="donations" nameKey="category" outerRadius={105} label>{report.food_categories.map((entry, index) => <Cell fill={colors[index % colors.length]} key={entry.category} />)}</Pie><Tooltip /></PieChart></ResponsiveContainer>
           </ChartCard>
-          <Card className="p-5"><h2 className="font-semibold">Report totals</h2><div className="mt-4 grid grid-cols-2 gap-3"><StatCard label="Food rescued" value={`${Number(report.summary.food_saved_kg).toLocaleString()} kg`} /><StatCard label="Meals provided" value={Number(report.summary.meals_provided).toLocaleString()} tone="butter" /></div><p className="mt-4 text-xs leading-5 text-slate-500">Impact values come from impact_records. No synthetic or estimated values are included.</p></Card>
+          <Card className="p-5"><h2 className="font-semibold">Report totals</h2><div className="mt-4 grid grid-cols-2 gap-3"><StatCard label="Food rescued" value={`${Number(report.summary.food_saved_kg).toLocaleString()} kg`} /><StatCard label="Meals provided" value={Number(report.summary.meals_provided).toLocaleString()} tone="butter" /></div><p className="mt-4 text-xs leading-5 text-slate-500">Totals use actual impact_records for completed, receipt-confirmed donations. Environmental values are estimates only where explicitly labeled.</p></Card>
         </div>
       )}
     </>
@@ -487,17 +490,22 @@ function Reports({ report, loading, error, onRetry }: { report: AdminReport | nu
 
 function AdminNotifications({ items, loading, error, onRetry, onChanged }: { items: NotificationItem[]; loading: boolean; error: string; onRetry: () => void; onChanged: () => void }) {
   const [message, setMessage] = useState("");
-  const readAll = async () => {
+  const markRead = async (id: string) => {
     try {
-      await dashboardRequest("/notifications/read-all", { method: "POST" });
+      await dashboardRequest(`/notifications/${id}/read`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_read: true }),
+      });
       onChanged();
-    } catch (failure) { setMessage(dashboardErrorMessage(failure, "Could not mark notifications read.")); }
+      window.dispatchEvent(new CustomEvent("foodbridge:notifications-read", { detail: id }));
+    } catch (failure) { setMessage(dashboardErrorMessage(failure, "Could not mark notification read.")); }
   };
   return (
     <>
-      <DashboardHeading eyebrow="Platform alerts" title="Notifications" action={<Button variant="secondary" onClick={() => void readAll()}>Mark all read</Button>} />
+      <DashboardHeading eyebrow="Platform alerts" title="Notifications" />
       {message ? <p className="mb-4 text-sm text-red-700" role="alert">{message}</p> : null}
-      {loading || error ? <DashboardState loading={loading} error={error} onRetry={onRetry} /> : !items.length ? <DashboardState empty /> : <div className="space-y-3">{items.map((item) => <Card className="p-5" key={item.id}><h2 className="font-semibold">{item.title ?? "FoodBridge update"}</h2><p className="mt-1 text-sm text-slate-600">{item.message}</p><p className="mt-2 text-xs text-slate-400">{dateLabel(item.created_at)} · {item.is_read ? "Read" : "Unread"}</p></Card>)}</div>}
+      {loading || error ? <DashboardState loading={loading} error={error} onRetry={onRetry} /> : !items.length ? <DashboardState empty /> : <div className="space-y-3">{items.map((item) => <Card className="flex items-start justify-between gap-4 p-5" key={item.id}><div><h2 className="font-semibold">{item.title ?? "FoodBridge update"}</h2><p className="mt-1 text-sm text-slate-600">{item.message}</p><p className="mt-2 text-xs text-slate-400">{dateLabel(item.created_at)} · {item.is_read ? "Read" : "Unread"}</p></div>{!item.is_read ? <button className="shrink-0 text-xs font-semibold text-forest" onClick={() => void markRead(item.id)} type="button">Mark read</button> : null}</Card>)}</div>}
     </>
   );
 }

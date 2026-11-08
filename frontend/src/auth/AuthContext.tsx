@@ -25,28 +25,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [configError, setConfigError] = useState<string | null>(null);
   const [sessionNotice, setSessionNotice] = useState<string | null>(null);
 
-  const loadProfile = useCallback(async (accessToken: string) => {
+  const loadProfile = useCallback(async (
+    accessToken: string,
+    registration?: unknown,
+  ) => {
     const response = await requestJson<AuthProfileResponse>("/auth/me", {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
+    if (!response.profile && registration) {
+      const completed = await requestJson<{ profile: AuthProfile }>(
+        "/auth/complete-registration",
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${accessToken}` },
+        },
+      );
+      setProfile(completed.profile);
+      return completed.profile;
+    }
     setProfile(response.profile);
     return response.profile;
   }, []);
 
   const refreshProfile = useCallback(
-    async (accessToken?: string) => {
+    async (accessToken?: string, registration?: unknown) => {
       const supabase = getSupabaseClient();
       let token = accessToken;
+      let registrationMetadata = registration;
       if (!token) {
         const { data, error } = await supabase.auth.getSession();
         if (error) throw error;
         token = data.session?.access_token;
+        registrationMetadata ??= data.session?.user.user_metadata?.registration;
       }
       if (!token) {
         setProfile(null);
         return null;
       }
-      return loadProfile(token);
+      return loadProfile(token, registrationMetadata);
     },
     [loadProfile],
   );
@@ -99,7 +115,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(data.user);
         setSessionNotice(null);
         try {
-          await loadProfile(session.access_token);
+          const currentProfile = await loadProfile(
+            session.access_token,
+            data.user.user_metadata?.registration,
+          );
+          if (!currentProfile) {
+            setSessionNotice("Your account profile is not set up. Retry profile setup or contact support.");
+          }
         } catch (profileError) {
           if (!active || currentGeneration !== generation) return;
           if (profileError instanceof ApiError && profileError.status === 401) {
