@@ -36,6 +36,9 @@ export interface DonationDetails extends Donation {
     status: string | null;
     description: string | null;
     updated_at: string;
+    responsible_user_id?: string | null;
+    responsible_user?: { full_name: string | null } | null;
+    location?: string | null;
   }[];
   assignment: DonationAssignment | null;
   delivery_proofs?: {

@@ -4,6 +4,7 @@ import { HttpError } from "../utils/HttpError.js";
 import { getSupabaseAdmin } from "./supabaseAdmin.js";
 import { failDatabase } from "./domainCommon.js";
 import { approveRegistration } from "./authService.js";
+import { recordDonationEvent } from "./foodPassportService.js";
 
 type RescueUpdate = z.infer<typeof rescueUpdateSchema>;
 
@@ -228,56 +229,336 @@ export async function monitorAssignments(limit: number, offset: number) {
 }
 
 export async function listRescueRequests(limit: number, offset: number) {
-  const { data, error } = await getSupabaseAdmin()
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
     .from("rescue_requests")
-    .select("*, donations(food_name, status, donor_id)")
+    .select("*, donations(id, food_name, status, donor_id, expiry_time, preparation_time, city)")
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
   if (error) failDatabase(error, "Could not load rescue requests:");
-  return data ?? [];
+  const requests = data ?? [];
+  const donationIds = [...new Set(requests.map((request) => request.donation_id))];
+  const { data: assignments, error: assignmentError } = donationIds.length
+    ? await supabase
+      .from("donation_assignments")
+      .select("donation_id, id, status, partner_id, partner_profiles(vehicle_type, vehicle_number)")
+      .in("donation_id", donationIds)
+    : { data: [], error: null };
+  if (assignmentError) failDatabase(assignmentError, "Could not load rescue delivery assignments:");
+  return requests.map((request) => ({
+    ...request,
+    donation_assignments: (assignments ?? []).filter((assignment) =>
+      assignment.donation_id === request.donation_id,
+    ),
+  }));
+}
+
+const rescueWindowHours = 4;
+const minimumHandlingMinutes = 120;
+const rescueBatchSize = 3;
+const escalationIntervalMinutes = 15;
+const reminderIntervalMinutes = 30;
+let communityRescueScanInProgress = false;
+
+export async function scanCommunityRescue(scanningUserId?: string) {
+  if (communityRescueScanInProgress) {
+    throw new HttpError("A Community Rescue scan is already running.", 409);
+  }
+  communityRescueScanInProgress = true;
+  try {
+    return await performCommunityRescueScan(scanningUserId);
+  } finally {
+    communityRescueScanInProgress = false;
+  }
+}
+
+async function performCommunityRescueScan(scanningUserId?: string) {
+  const supabase = getSupabaseAdmin();
+  const now = new Date();
+  const { data: donations, error: donationError } = await supabase
+    .from("donations")
+    .select("id, food_name, status, food_category, quantity, quantity_unit, city, pickup_address, preparation_time, expiry_time")
+    .eq("status", "available")
+    .order("expiry_time", { ascending: true })
+    .limit(500);
+  if (donationError) failDatabase(donationError, "Could not find unaccepted donations:");
+  const donationIds = (donations ?? []).map((donation) => donation.id);
+  const { data: requests, error: requestError } = donationIds.length
+    ? await supabase
+      .from("rescue_requests")
+      .select("id, donation_id, status, outcome, escalation_level, notified_ngo_ids, last_notified_at, created_at")
+      .in("donation_id", donationIds)
+      .order("created_at", { ascending: false })
+    : { data: [], error: null };
+  if (requestError) failDatabase(requestError, "Could not load active rescue requests:");
+  const requestByDonation = new Map<string, NonNullable<typeof requests>[number]>();
+  for (const request of requests ?? []) {
+    if (!requestByDonation.has(request.donation_id)) requestByDonation.set(request.donation_id, request);
+  }
+  const summary = { examined: 0, opened: 0, notified: 0, expanded: 0, reminded: 0, blocked: 0 };
+
+  for (const donation of donations ?? []) {
+    const expiresAt = new Date(donation.expiry_time).getTime();
+    const minutesRemaining = (expiresAt - now.getTime()) / 60_000;
+    const prepAt = donation.preparation_time ? new Date(donation.preparation_time).getTime() : Number.NaN;
+    const existing = requestByDonation.get(donation.id);
+    if (existing && ["resolved", "cancelled"].includes(existing.status)) continue;
+    if (existing?.status === "assigned") continue;
+    if (minutesRemaining > rescueWindowHours * 60 && Number.isFinite(prepAt) && prepAt <= now.getTime()) continue;
+    summary.examined += 1;
+
+    const blockedReason = !Number.isFinite(expiresAt) || minutesRemaining <= 0
+      ? "Blocked: donor-provided expiry has passed or is invalid. Expired food is never sent for rescue."
+      : !Number.isFinite(prepAt) || prepAt > now.getTime()
+        ? "Blocked: donor-provided preparation time is missing or still in the future, so handling readiness is uncertain."
+        : minutesRemaining <= minimumHandlingMinutes
+          ? "Blocked: less than two hours remain before the donor-provided expiry, so the delivery cannot reasonably be completed in time."
+          : null;
+
+    if (blockedReason) {
+      if (existing) {
+        const { error } = await supabase
+          .from("rescue_requests")
+          .update({ status: "resolved", outcome: "blocked", reason: blockedReason, resolution_notes: blockedReason })
+          .eq("id", existing.id);
+        if (error) failDatabase(error, "Could not record blocked rescue request:");
+      } else {
+        const { data, error } = await supabase
+          .from("rescue_requests")
+          .insert({
+            donation_id: donation.id,
+            status: "resolved",
+            outcome: "blocked",
+            reason: blockedReason,
+            description: blockedReason,
+            resolution_notes: blockedReason,
+          })
+          .select("id, donation_id, status, outcome, escalation_level, notified_ngo_ids, last_notified_at, created_at")
+          .single();
+        if (error) failDatabase(error, "Could not create blocked rescue request:");
+        requestByDonation.set(donation.id, data);
+        summary.opened += 1;
+      }
+      await recordDonationEvent({
+        donationId: donation.id,
+        status: "rescue_blocked",
+        description: blockedReason,
+        responsibleUserId: scanningUserId ?? null,
+        location: donation.city ?? donation.pickup_address,
+      });
+      summary.blocked += 1;
+      continue;
+    }
+
+    const reason = `No NGO has accepted this donation and the donor-provided expiry is in ${Math.floor(minutesRemaining / 60)}h ${Math.floor(minutesRemaining % 60)}m. FoodBridge coordinates rescue only and does not certify food safety.`;
+    let activeRequest = existing;
+    if (!activeRequest) {
+      const { data, error } = await supabase
+        .from("rescue_requests")
+        .insert({
+          donation_id: donation.id,
+          status: "open",
+          reason,
+          description: reason,
+        })
+        .select("id, donation_id, status, outcome, escalation_level, notified_ngo_ids, last_notified_at, created_at")
+        .single();
+      if (error) failDatabase(error, "Could not create rescue request:");
+      activeRequest = data;
+      requestByDonation.set(donation.id, data);
+      summary.opened += 1;
+      await recordDonationEvent({
+        donationId: donation.id,
+        status: "rescue_search_started",
+        description: "Community rescue search started because no NGO had accepted before the donor-provided handling window narrowed.",
+        responsibleUserId: scanningUserId ?? null,
+        location: donation.city ?? donation.pickup_address,
+      });
+    } else {
+      const { error } = await supabase
+        .from("rescue_requests")
+        .update({ reason, description: reason })
+        .eq("id", activeRequest.id);
+      if (error) failDatabase(error, "Could not update rescue request reason:");
+    }
+    if (!activeRequest) throw new Error("Rescue request was not initialized.");
+
+    const { data: ngos, error: ngoError } = await supabase
+      .from("ngo_profiles")
+      .select("id, user_id, city, preferred_categories, max_daily_quantity, capacity_unit")
+      .eq("is_verified", true);
+    if (ngoError) failDatabase(ngoError, "Could not find eligible NGOs:");
+    const ngoRows = ngos ?? [];
+    const { data: activeProfiles, error: profileError } = ngoRows.length
+      ? await supabase
+        .from("profiles")
+        .select("id, role, is_suspended")
+        .in("id", ngoRows.map((ngo) => ngo.user_id))
+      : { data: [], error: null };
+    if (profileError) failDatabase(profileError, "Could not verify eligible NGO accounts:");
+    const activeUserIds = new Set((activeProfiles ?? [])
+      .filter((profile) => profile.role === "ngo" && !profile.is_suspended)
+      .map((profile) => profile.id));
+    const category = String(donation.food_category).toLocaleLowerCase().replace(/[\s-]+/g, "_");
+    const eligible = ngoRows.filter((ngo) => {
+      if (!activeUserIds.has(ngo.user_id)) return false;
+      if (!donation.city || !ngo.city || donation.city.trim().toLocaleLowerCase() !== ngo.city.trim().toLocaleLowerCase()) return false;
+      const preferred = (ngo.preferred_categories ?? []).map((item: string) => item.toLocaleLowerCase().replace(/[\s-]+/g, "_"));
+      if (preferred.length && !preferred.includes(category)) return false;
+      if (ngo.max_daily_quantity != null) {
+        if (!ngo.capacity_unit || ngo.capacity_unit.toLocaleLowerCase() !== String(donation.quantity_unit).toLocaleLowerCase()) return false;
+        if (Number(donation.quantity) > Number(ngo.max_daily_quantity)) return false;
+      }
+      return true;
+    });
+    const notifiedIds = new Set<string>(activeRequest.notified_ngo_ids ?? []);
+    const freshCandidates = eligible.filter((ngo) => !notifiedIds.has(ngo.id));
+    const lastNotified = activeRequest.last_notified_at
+      ? new Date(activeRequest.last_notified_at).getTime()
+      : 0;
+    const cooldownElapsed = now.getTime() - lastNotified >= escalationIntervalMinutes * 60_000;
+    let targets = freshCandidates.slice(0, rescueBatchSize);
+    let eventStatus = lastNotified ? "rescue_search_expanded" : "rescue_ngo_notified";
+    let nextLevel = Number(activeRequest.escalation_level ?? 0);
+
+    if (!targets.length && cooldownElapsed && eligible.length && now.getTime() - lastNotified >= reminderIntervalMinutes * 60_000) {
+      targets = eligible;
+      eventStatus = "rescue_reminder_sent";
+      summary.reminded += 1;
+    } else if (targets.length && lastNotified && cooldownElapsed) {
+      summary.expanded += 1;
+      nextLevel += 1;
+    } else if (targets.length && lastNotified && !cooldownElapsed) {
+      continue;
+    } else if (!targets.length) {
+      if (!eligible.length && activeRequest.outcome !== "blocked") {
+        const note = "No verified, active NGO in the same city meets the declared food-category and capacity requirements. Transportation feasibility cannot be inferred because no route or partner ETA is recorded.";
+        const { error } = await supabase
+          .from("rescue_requests")
+          .update({ outcome: "blocked", resolution_notes: note })
+          .eq("id", activeRequest.id);
+        if (error) failDatabase(error, "Could not record rescue feasibility:");
+        await recordDonationEvent({
+          donationId: donation.id,
+          status: "rescue_blocked",
+          description: note,
+          responsibleUserId: scanningUserId ?? null,
+          location: donation.city ?? donation.pickup_address,
+        });
+        summary.blocked += 1;
+      }
+      continue;
+    }
+
+    const notifications = targets.map((ngo) => ({
+      user_id: ngo.user_id,
+      title: "Community rescue request",
+      message: `FoodBridge is seeking an eligible recipient for ${donation.food_name} (${donation.quantity} ${donation.quantity_unit}) in ${donation.city}. Donor-provided expiry: ${new Date(donation.expiry_time).toLocaleString()}. Review preparation and pickup details before accepting; FoodBridge does not certify food safety. Donation ID: ${donation.id}`,
+    }));
+    const { error: notificationError } = await supabase.from("notifications").insert(notifications);
+    if (notificationError) failDatabase(notificationError, "Could not notify eligible NGOs:");
+    const updatedIds = [...new Set([...notifiedIds, ...targets.map((ngo) => ngo.id)])];
+    const { error: updateError } = await supabase
+      .from("rescue_requests")
+      .update({
+        notified_ngo_ids: updatedIds,
+        last_notified_at: now.toISOString(),
+        escalation_level: nextLevel,
+        outcome: null,
+        resolution_notes: "Notifications sent to verified, same-city NGOs that match the donor-declared category and capacity. A coordinator must verify transport ETA; no assignment or safety certification is inferred.",
+      })
+      .eq("id", activeRequest.id);
+    if (updateError) failDatabase(updateError, "Could not record rescue escalation:");
+    await recordDonationEvent({
+      donationId: donation.id,
+      status: eventStatus,
+      description: `${targets.length} eligible same-city NGO${targets.length === 1 ? "" : "s"} notified. No delivery assignment was created; recipient acceptance and transport feasibility remain required.`,
+      responsibleUserId: scanningUserId ?? null,
+      location: donation.city ?? donation.pickup_address,
+    });
+    summary.notified += targets.length;
+  }
+  return summary;
 }
 
 export async function updateRescueRequest(
   rescueId: string,
   input: RescueUpdate,
+  adminUserId: string,
 ) {
+  const supabase = getSupabaseAdmin();
+  const { data: request, error: requestError } = await supabase
+    .from("rescue_requests")
+    .select("id, donation_id, status, outcome, assigned_partner_id, resolution_notes")
+    .eq("id", rescueId)
+    .maybeSingle();
+  if (requestError) failDatabase(requestError, "Could not load rescue request:");
+  if (!request) throw new HttpError("Rescue request not found.", 404);
+  if (input.assigned_partner_id) {
+    const { data: assignment, error: assignmentError } = await supabase
+      .from("donation_assignments")
+      .select("id, status, partner_id")
+      .eq("donation_id", request.donation_id)
+      .eq("partner_id", input.assigned_partner_id)
+      .maybeSingle();
+    if (assignmentError) failDatabase(assignmentError, "Could not verify rescue assignment:");
+    if (!assignment || !["assigned", "picked_up", "delivered", "completed"].includes(assignment.status)) {
+      throw new HttpError("A rescue partner can only be recorded after the partner accepts the actual delivery assignment.", 409);
+    }
+  }
   if (input.status === "assigned" && !input.assigned_partner_id) {
-    throw new HttpError("Choose an approved delivery partner to assign.", 400);
+    throw new HttpError("A rescue request can only be marked assigned when the accepted delivery partner is recorded.", 400);
   }
   if (input.status !== "assigned" && input.assigned_partner_id) {
-    throw new HttpError("A delivery partner can only be set for an assigned request.", 400);
+    throw new HttpError("A delivery partner can only be recorded for an assigned rescue request.", 400);
   }
-  if (input.assigned_partner_id) {
-    const { data: partner, error: partnerError } = await getSupabaseAdmin()
-      .from("partner_profiles")
-      .select("id, user_id")
-      .eq("id", input.assigned_partner_id)
-      .maybeSingle();
-    if (partnerError) {
-      failDatabase(partnerError, "Could not verify assigned delivery partner:");
+  if (input.status === "resolved") {
+    if (!input.outcome) throw new HttpError("Record whether the rescue was completed or blocked.", 400);
+    if (!input.resolution_notes?.trim()) {
+      throw new HttpError("Record notes explaining the final rescue outcome.", 400);
     }
-    if (!partner) throw new HttpError("Delivery partner not found.", 404);
-    const { data: profile, error: profileError } = await getSupabaseAdmin()
-      .from("profiles")
-      .select("id")
-      .eq("id", partner.user_id)
-      .eq("role", "delivery_partner")
-      .eq("is_suspended", false)
-      .maybeSingle();
-    if (profileError) {
-      failDatabase(profileError, "Could not verify delivery partner approval:");
+    if (input.outcome === "rescued") {
+      const { data: completedAssignment, error: completedError } = await supabase
+        .from("donation_assignments")
+        .select("id")
+        .eq("donation_id", request.donation_id)
+        .eq("status", "completed")
+        .maybeSingle();
+      if (completedError) failDatabase(completedError, "Could not verify rescue completion:");
+      if (!completedAssignment) {
+        throw new HttpError("A rescue can only be recorded as completed after NGO receipt is confirmed.", 409);
+      }
     }
-    if (!profile) {
-      throw new HttpError("Only active, approved delivery partners can be assigned.", 409);
-    }
+  } else if (input.outcome) {
+    throw new HttpError("Record a final outcome only when resolving the rescue request.", 400);
   }
-  const { data, error } = await getSupabaseAdmin()
+  const updatedFields = {
+    status: input.status,
+    assigned_partner_id: input.status === "assigned" ? input.assigned_partner_id ?? null : null,
+    outcome: input.status === "resolved" ? input.outcome ?? null : null,
+    resolution_notes: input.resolution_notes?.trim() || null,
+  };
+  const changed = request.status !== updatedFields.status ||
+    request.assigned_partner_id !== updatedFields.assigned_partner_id ||
+    request.outcome !== updatedFields.outcome ||
+    request.resolution_notes !== updatedFields.resolution_notes;
+  const { data, error } = await supabase
     .from("rescue_requests")
-    .update(input)
+    .update(updatedFields)
     .eq("id", rescueId)
     .select("*")
     .maybeSingle();
   if (error) failDatabase(error, "Could not update rescue request:");
   if (!data) throw new HttpError("Rescue request not found.", 404);
+  if (!changed) return data;
+  const eventStatus = input.status === "resolved"
+    ? input.outcome === "rescued" ? "rescue_completed" : "rescue_blocked"
+    : input.status === "assigned" ? "rescue_assigned" : `rescue_${input.status}`;
+  await recordDonationEvent({
+    donationId: request.donation_id,
+    status: eventStatus,
+    description: input.resolution_notes?.trim() || `Administrator updated rescue request to ${input.status}${input.outcome ? ` (${input.outcome})` : ""}.`,
+    responsibleUserId: adminUserId,
+  });
   return data;
 }

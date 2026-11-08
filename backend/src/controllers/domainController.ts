@@ -214,7 +214,11 @@ export async function acceptAssignmentController(
 ) {
   const user = requireUser(request);
   response.status(201).json({
-    assignment: await acceptAssignment(user.id, request.params.assignmentId),
+    assignment: await acceptAssignment(
+      user.id,
+      request.params.assignmentId,
+      request.body.estimated_duration_minutes,
+    ),
   });
 }
 

@@ -4,9 +4,10 @@ import {
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { Badge, Button, Card } from "../../components/ui";
+import { FoodPassport } from "../../components/FoodPassport";
 import { useAuth } from "../../auth/AuthContext";
 import { dashboardErrorMessage, dashboardRequest } from "../../services/dashboardApi";
-import type { NotificationItem } from "../../types/food";
+import type { DonationDetails, NotificationItem } from "../../types/food";
 import {
   DashboardHeading, DashboardShell, DashboardState, StatCard, useDashboardTab,
 } from "./DashboardShell";
@@ -54,9 +55,14 @@ type RescueRequest = {
   status: string;
   created_at: string;
   description?: string | null;
+  reason?: string | null;
+  outcome?: string | null;
+  escalation_level?: number;
+  resolution_notes?: string | null;
   donation_id?: string | null;
   assigned_partner_id?: string | null;
-  donations?: { food_name: string; status: string; donor_id: string } | null;
+  donations?: { id: string; food_name: string; status: string; donor_id: string; expiry_time: string; city: string | null } | null;
+  donation_assignments?: { status: string; partner_id: string | null; partner_profiles?: { vehicle_type: string | null; vehicle_number: string | null } | null }[];
 };
 
 type AdminReport = {
@@ -153,7 +159,7 @@ export function AdminDashboard() {
       ) : null}
       {tab === "adminDonations" ? <DonationsSection items={donations} loading={loading} error={error} onRetry={load} /> : null}
       {tab === "adminAssignments" ? <AssignmentsSection items={assignments} loading={loading} error={error} onRetry={load} /> : null}
-      {tab === "requests" ? <RequestsSection items={requests} partners={users.filter((user) => user.role === "delivery_partner" && !user.is_suspended)} loading={loading} error={error} onRetry={load} onChanged={load} /> : null}
+      {tab === "requests" ? <RequestsSection items={requests} loading={loading} error={error} onRetry={load} onChanged={load} /> : null}
       {tab === "reports" ? <Reports report={report} loading={loading} error={error} onRetry={load} /> : null}
       {tab === "notifications" ? <AdminNotifications items={notifications} loading={loading} error={error} onRetry={load} onChanged={load} /> : null}
       {tab === "settings" ? <Settings email={profile?.email ?? ""} fullName={profile?.full_name ?? ""} /> : null}
@@ -303,6 +309,7 @@ function UserCard({ user, busy, onAction }: { user: UserRecord; busy: boolean; o
 function DonationsSection({ items, loading, error, onRetry }: { items: DonationRecord[]; loading: boolean; error: string; onRetry: () => void }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
+  const [passportId, setPassportId] = useState("");
   const filtered = useMemo(() => items.filter((item) => {
     const text = `${item.food_name} ${item.id} ${item.city ?? ""} ${item.donor_profiles?.organization_name ?? ""}`.toLowerCase();
     return (status === "all" || item.status === status) && (!query || text.includes(query.toLowerCase()));
@@ -317,10 +324,37 @@ function DonationsSection({ items, loading, error, onRetry }: { items: DonationR
           return <Card className="p-4 sm:p-5" key={item.id}>
             <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-semibold">{item.food_name}</h2><p className="mt-1 text-sm text-slate-600">{item.quantity} {item.quantity_unit} · {item.food_category} · {item.city ?? item.pickup_address}</p><p className="mt-1 text-xs text-slate-500">Donor: {item.donor_profiles?.organization_name ?? "FoodBridge donor"} · Created {dateLabel(item.created_at)}</p><p className="mt-1 font-mono text-[0.68rem] text-slate-400">{item.id}</p></div><div className="flex items-center gap-2"><Badge tone={expired ? "danger" : item.status === "completed" ? "forest" : "neutral"}>{expired ? "Expired" : titleCase(item.status)}</Badge></div></div>
             <details className="mt-3 border-t border-charcoal/8 pt-3"><summary className="cursor-pointer text-xs font-semibold text-forest">Donation details</summary><p className="mt-2 text-sm text-slate-600">Pickup: {item.pickup_address}, {item.city ?? ""} · Expires {dateLabel(item.expiry_time)}</p></details>
+            <Button className="mt-4" onClick={() => setPassportId((current) => current === item.id ? "" : item.id)} size="sm" variant="secondary">{passportId === item.id ? "Hide passport" : "View food passport"}</Button>
+            {passportId === item.id ? <AdminDonationPassport donationId={item.id} /> : null}
           </Card>;
         })}</div>
       )}
     </>
+  );
+}
+
+function AdminDonationPassport({ donationId }: { donationId: string }) {
+  const [donation, setDonation] = useState<DonationDetails | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    void dashboardRequest<{ donation: DonationDetails }>(`/donations/${donationId}`)
+      .then((result) => { if (active) setDonation(result.donation); })
+      .catch((failure: unknown) => {
+        if (active) setError(dashboardErrorMessage(failure, "Could not load the food passport."));
+      });
+    return () => { active = false; };
+  }, [donationId]);
+  if (error) return <p className="mt-4 text-sm text-red-700" role="alert">{error}</p>;
+  if (!donation) return <p className="mt-4 text-sm text-slate-500">Loading food passport…</p>;
+  return (
+    <div className="mt-4">
+      <FoodPassport
+        donationId={donation.id}
+        donationStatus={donation.status}
+        events={donation.status_events ?? []}
+      />
+    </div>
   );
 }
 
@@ -344,27 +378,47 @@ function AssignmentsSection({ items, loading, error, onRetry }: { items: Assignm
 }
 
 function RequestsSection({
-  items, partners, loading, error, onRetry, onChanged,
+  items, loading, error, onRetry, onChanged,
 }: {
   items: RescueRequest[];
-  partners: UserRecord[];
   loading: boolean;
   error: string;
   onRetry: () => void;
   onChanged: () => void;
 }) {
-  const [values, setValues] = useState<Record<string, { status: string; partnerId: string }>>({});
+  const [values, setValues] = useState<Record<string, { status: string; outcome: string; notes: string }>>({});
   const [errorMessage, setErrorMessage] = useState("");
   const [busy, setBusy] = useState("");
+  const [scanMessage, setScanMessage] = useState("");
+  const [scanning, setScanning] = useState(false);
+  const runScan = async () => {
+    setScanning(true);
+    setErrorMessage("");
+    setScanMessage("");
+    try {
+      const { scan } = await dashboardRequest<{ scan: { examined: number; opened: number; notified: number; expanded: number; reminded: number; blocked: number } }>("/admin/rescue-requests/scan", { method: "POST" });
+      setScanMessage(`Scan complete: ${scan.examined} examined, ${scan.opened} request(s) opened, ${scan.notified} NGO notification(s), ${scan.expanded} escalations, ${scan.reminded} reminder(s), ${scan.blocked} blocked.`);
+      onChanged();
+    } catch (failure) { setErrorMessage(dashboardErrorMessage(failure, "Could not run the rescue scan.")); }
+    finally { setScanning(false); }
+  };
   const update = async (item: RescueRequest) => {
-    const value = values[item.id] ?? { status: item.status, partnerId: item.assigned_partner_id ?? "" };
+    const value = values[item.id] ?? { status: item.status, outcome: item.outcome ?? "", notes: item.resolution_notes ?? "" };
+    const acceptedPartnerId = item.assigned_partner_id ??
+      item.donation_assignments?.find((assignment) => assignment.partner_id)?.partner_id ??
+      null;
     setBusy(item.id);
     setErrorMessage("");
     try {
       await dashboardRequest(`/admin/rescue-requests/${item.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: value.status, assigned_partner_id: value.status === "assigned" ? value.partnerId : null }),
+        body: JSON.stringify({
+          status: value.status,
+          outcome: value.status === "resolved" ? value.outcome || null : null,
+          resolution_notes: value.notes.trim() || null,
+          assigned_partner_id: value.status === "assigned" ? acceptedPartnerId : null,
+        }),
       });
       onChanged();
     } catch (failure) { setErrorMessage(dashboardErrorMessage(failure, "Could not update rescue request.")); }
@@ -372,18 +426,30 @@ function RequestsSection({
   };
   return (
     <>
-      <DashboardHeading eyebrow="Community operations" title="Rescue requests" description="Review request status and assign an approved delivery partner when a request moves to assigned." />
+      <DashboardHeading eyebrow="Community operations" title="Rescue management" description="Run an escalation scan for unaccepted donations, review verified NGO notifications, and record only verified assignment and resolution outcomes." action={<Button disabled={scanning} onClick={() => void runScan()}>{scanning ? "Scanning…" : "Run rescue scan"}</Button>} />
       {errorMessage ? <p className="mb-4 text-sm text-red-700" role="alert">{errorMessage}</p> : null}
+      {scanMessage ? <p className="mb-4 rounded-xl bg-[#eaf0e7] p-4 text-sm text-forest" role="status">{scanMessage}</p> : null}
       {loading || error ? <DashboardState loading={loading} error={error} onRetry={onRetry} /> : !items.length ? <DashboardState empty /> : (
         <div className="space-y-3">{items.map((item) => {
-          const value = values[item.id] ?? { status: item.status, partnerId: item.assigned_partner_id ?? "" };
+          const value = values[item.id] ?? { status: item.status, outcome: item.outcome ?? "", notes: item.resolution_notes ?? "" };
+          const deliveryAssignment = item.donation_assignments?.find((assignment) => assignment.partner_id);
+          const assignedPartner = deliveryAssignment?.partner_profiles;
+          const assignedPartnerId = item.assigned_partner_id ?? deliveryAssignment?.partner_id ?? null;
           return <Card className="p-4 sm:p-5" key={item.id}>
-            <div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-semibold">{item.donations?.food_name ?? "Rescue request"}</h2><p className="mt-1 text-xs text-slate-500">Created {dateLabel(item.created_at)} · Request {item.id}</p></div><Badge tone={value.status === "resolved" ? "forest" : "butter"}>{titleCase(value.status)}</Badge></div>
+            <div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="font-semibold">{item.donations?.food_name ?? "Rescue request"}</h2><p className="mt-1 text-xs text-slate-500">Request {item.id} · Donation {item.donation_id ?? "—"} · Created {dateLabel(item.created_at)}</p></div><Badge tone={item.outcome === "blocked" ? "danger" : value.status === "resolved" ? "forest" : "butter"}>{item.outcome === "blocked" ? "Blocked" : titleCase(value.status)}</Badge></div>
+            <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+              <div><dt className="text-xs font-medium text-slate-500">Reason</dt><dd className="mt-1 leading-5">{item.reason ?? item.description ?? "Not recorded"}</dd></div>
+              <div><dt className="text-xs font-medium text-slate-500">Escalation level</dt><dd className="mt-1">{item.escalation_level ?? 0}</dd></div>
+              <div><dt className="text-xs font-medium text-slate-500">Assigned partner</dt><dd className="mt-1">{assignedPartner ? `${assignedPartner.vehicle_type ?? "Delivery partner"} · ${assignedPartner.vehicle_number ?? "Vehicle not recorded"}` : "No accepted partner assignment"}</dd></div>
+              <div><dt className="text-xs font-medium text-slate-500">Resolution notes</dt><dd className="mt-1">{item.resolution_notes ?? "No resolution recorded"}</dd></div>
+            </dl>
             <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
-              <select aria-label="Rescue request status" className="ds-field" onChange={(event) => setValues((current) => ({ ...current, [item.id]: { ...value, status: event.currentTarget.value } }))} value={value.status}><option value="open">Open</option><option value="assigned">Assigned</option><option value="resolved">Resolved</option><option value="cancelled">Cancelled</option></select>
-              <select aria-label="Assigned delivery partner" className="ds-field" onChange={(event) => setValues((current) => ({ ...current, [item.id]: { ...value, partnerId: event.currentTarget.value } }))} value={value.partnerId}><option value="">Select approved partner</option>{partners.map((partner) => <option key={partner.partner?.id ?? partner.id} value={partner.partner?.id ?? ""}>{partner.full_name ?? partner.email ?? partner.id} · {partner.partner?.vehicle_type ?? "Partner"}</option>)}</select>
+              <select aria-label="Rescue request status" className="ds-field" onChange={(event) => setValues((current) => ({ ...current, [item.id]: { ...value, status: event.currentTarget.value } }))} value={value.status}><option value="open">Open</option><option disabled={!assignedPartnerId} value="assigned">Assigned (accepted delivery only)</option><option value="resolved">Resolved</option><option value="cancelled">Cancelled</option></select>
+              <select aria-label="Rescue outcome" className="ds-field" disabled={value.status !== "resolved"} onChange={(event) => setValues((current) => ({ ...current, [item.id]: { ...value, outcome: event.currentTarget.value } }))} value={value.outcome}><option value="">Choose final outcome</option><option value="rescued">Rescued (receipt confirmed)</option><option value="blocked">Blocked</option></select>
               <Button disabled={busy === item.id} onClick={() => void update(item)} size="sm">{busy === item.id ? "Saving…" : "Save request"}</Button>
             </div>
+            <textarea aria-label="Rescue resolution notes" className="ds-field mt-3 min-h-20" maxLength={2000} onChange={(event) => setValues((current) => ({ ...current, [item.id]: { ...value, notes: event.currentTarget.value } }))} placeholder="Record verified outcome details or why this request was blocked." value={value.notes} />
+            <p className="mt-2 text-xs text-slate-500">FoodBridge does not certify food safety. Assignments require NGO acceptance, partner acceptance, and an adequate handling window.</p>
           </Card>;
         })}</div>
       )}

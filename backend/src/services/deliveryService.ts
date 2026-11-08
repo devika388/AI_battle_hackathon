@@ -41,23 +41,35 @@ export async function listAvailableAssignments(
     .is("partner_id", null)
     .eq("status", "accepted")
     .eq("donations.status", "matched")
-    .gt("donations.expiry_time", new Date().toISOString())
+    .gt("donations.expiry_time", new Date(Date.now() + 2 * 60 * 60_000).toISOString())
+    .lte("donations.preparation_time", new Date().toISOString())
     .order("assigned_at", { ascending: true })
     .range(offset, offset + limit - 1);
   if (error) failDatabase(error, "Could not load available assignments:");
   return data ?? [];
 }
 
-export async function acceptAssignment(userId: string, assignmentId: string) {
+export async function acceptAssignment(
+  userId: string,
+  assignmentId: string,
+  estimatedDurationMinutes: number,
+) {
   const partnerId = await requireVerifiedPartner(userId);
   const { data, error } = await getSupabaseAdmin().rpc(
     "foodbridge_accept_assignment",
-    { p_assignment_id: assignmentId, p_partner_id: partnerId },
+    {
+      p_assignment_id: assignmentId,
+      p_partner_id: partnerId,
+      p_estimated_duration_minutes: estimatedDurationMinutes,
+    },
   );
   if (error) {
     if (error.code === "P0002") throw new HttpError("Assignment not found.", 404);
     if (error.code === "23505" || error.code === "55000" || error.code === "42501") {
-      throw new HttpError("This assignment is no longer available.", 409);
+      throw new HttpError(
+        "This assignment is unavailable, or the estimated travel time and 30-minute handoff buffer do not fit before donor-provided expiry.",
+        409,
+      );
     }
     failDatabase(error, "Could not accept delivery assignment:");
   }
@@ -95,7 +107,8 @@ export async function updateDeliveryStatus(
     }
     failDatabase(error, "Could not update delivery status:");
   }
-  return Array.isArray(data) ? data[0] : data;
+  const assignment = Array.isArray(data) ? data[0] : data;
+  return assignment;
 }
 
 export async function updateDeliveryStage(
@@ -168,7 +181,7 @@ export async function uploadDeliveryProof(
   const supabase = getSupabaseAdmin();
   const { data: assignment, error: assignmentError } = await supabase
     .from("donation_assignments")
-    .select("id, status, delivery_stage")
+    .select("id, donation_id, status, delivery_stage")
     .eq("id", assignmentId)
     .eq("partner_id", partnerId)
     .maybeSingle();

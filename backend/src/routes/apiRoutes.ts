@@ -39,6 +39,7 @@ import {
   listUsersController,
   monitorAssignmentsController,
   monitorDonationsController,
+  scanCommunityRescueController,
   setSuspensionController,
   rejectVerificationController,
   updateRescueRequestController,
@@ -53,6 +54,7 @@ import { validateBody, validateParams, validateQuery } from "../middleware/valid
 import { asyncHandler } from "../utils/asyncHandler.js";
 import {
   assignmentIdParams,
+  assignmentAcceptSchema,
   donationCreateSchema,
   donationIdParams,
   donationUpdateSchema,
@@ -213,6 +215,7 @@ apiRoutes.post(
   ...authenticated,
   requireRole("delivery_partner"),
   validateParams(assignmentIdParams),
+  validateBody(assignmentAcceptSchema),
   asyncHandler(acceptAssignmentController),
 );
 apiRoutes.patch(
@@ -335,6 +338,12 @@ apiRoutes.get(
   requireAdmin,
   page,
   asyncHandler(listRescueRequestsController),
+);
+apiRoutes.post(
+  "/admin/rescue-requests/scan",
+  ...authenticated,
+  requireAdmin,
+  asyncHandler(scanCommunityRescueController),
 );
 apiRoutes.patch(
   "/admin/rescue-requests/:rescueId",

@@ -24,12 +24,12 @@ errors use `{ "error": "..." }`.
 | Method | Path | Access | Purpose |
 |---|---|---|---|
 | POST | `/donations` | Donor | Create a future-expiring donation |
-| GET | `/donations/eligible` | Verified NGO | Available, unexpired donations |
+| GET | `/donations/eligible` | Verified NGO | Prepared donations with at least two hours before donor-provided expiry |
 | GET | `/donations/mine` | Donor | Donor donation history |
 | GET | `/donations/:donationId` | Donor, NGO, assigned partner, admin | Donation and status history, scoped to access |
 | PATCH | `/donations/:donationId` | Donor | Edit own available donation |
 | DELETE | `/donations/:donationId` | Donor | Cancel own available donation |
-| GET | `/ngo/donations/matching` | Verified NGO | Pending matches for that NGO |
+| GET | `/ngo/donations/matching` | Verified NGO | Prepared donations with at least two hours before donor-provided expiry |
 | POST | `/ngo/donations/:donationId/accept` | Verified NGO | Atomically accept a donation |
 | POST | `/ngo/donations/:donationId/decline` | Verified NGO | Decline own pending match |
 | GET | `/ngo/donations/accepted` | Verified NGO | Accepted and in-progress donations |
@@ -41,7 +41,7 @@ errors use `{ "error": "..." }`.
 |---|---|---|---|
 | GET | `/partners/assignments/available` | Approved, available partner | Unassigned deliveries |
 | GET | `/partners/assignments` | Approved partner | Own assignments |
-| POST | `/partners/assignments/:assignmentId/accept` | Approved partner | Atomically claim an assignment |
+| POST | `/partners/assignments/:assignmentId/accept` | Approved partner | Atomically claim an assignment after providing `{ "estimated_duration_minutes": 1..720 }` |
 | PATCH | `/partners/assignments/:assignmentId/status` | Assigned partner | Mark a proof-backed delivery as delivered |
 | PATCH | `/partners/assignments/:assignmentId/stage` | Approved assigned partner | Advance one validated pickup/transit checkpoint |
 | POST | `/partners/assignments/:assignmentId/proof` | Assigned partner | Upload raw JPEG/PNG/WebP bytes (maximum 5 MB) |
@@ -53,6 +53,34 @@ The checkpoint sequence is pickup pending → pickup started → pickup confirme
 assignment delivered. The proof bucket object key, not a public URL, is stored
 in `delivery_proofs.proof_url`. The NGO is notified on delivery and must confirm
 receipt before the assignment becomes completed.
+
+## Community Rescue Mode and Food Passport
+
+The backend runs a rescue scan at startup and every five minutes. Admins may
+also run it from Rescue Management. The scan considers unaccepted donations
+approaching their donor-provided expiry, records an auditable rescue request,
+and notifies verified, active NGOs in the same city whose declared category
+and capacity preferences match. Further eligible NGOs are notified in batches
+after 15 minutes; reminders follow every 30 minutes. NGOs still need to accept
+donations themselves, and delivery partners still need to accept an actual
+assignment. The scan never creates a synthetic delivery assignment.
+
+Expired donations, missing/future preparation times, and windows under two
+hours are blocked. City is only a location proxy; FoodBridge does not infer a route or ETA and
+does not certify food safety. Assignments require NGO/partner acceptance, an available preparation time,
+at least two hours before the donor-provided expiry, and a partner-provided
+travel estimate plus a 30-minute handoff buffer that fits before expiry. The
+estimate is operational input, not a FoodBridge route guarantee. NGO
+acceptance creates the normal donation assignment; Community Rescue Mode
+doesn't bypass recipient or partner acceptance. Rescue outcomes can only be
+marked rescued after the NGO confirms receipt; blocked outcomes require
+resolution notes.
+
+Every donation's `/donations/:donationId` response includes its append-only
+`status_events` timeline, with timestamps, descriptions, responsible users,
+and recorded locations where available. Donors, accepted NGOs, assigned
+partners, and admins receive role-scoped access. The Food Passport in each
+dashboard distinguishes recorded history from pending journey stages.
 
 ## Administration
 
@@ -72,7 +100,8 @@ All `/admin` routes require an active profile whose database role is
 | GET | `/admin/donations` | Monitor donations |
 | GET | `/admin/assignments` | Monitor assignments |
 | GET | `/admin/rescue-requests` | List rescue requests |
-| PATCH | `/admin/rescue-requests/:rescueId` | Update status and optional assigned partner |
+| POST | `/admin/rescue-requests/scan` | Escalate eligible, unaccepted donations and notify suitable NGOs |
+| PATCH | `/admin/rescue-requests/:rescueId` | Record a verified assignment or a final rescued/blocked outcome |
 | GET | `/admin/impact` | Global impact totals |
 | GET | `/admin/reports` | Actual database totals and analytics series |
 
@@ -96,6 +125,7 @@ Run these files in the Supabase SQL Editor, in order:
 2. `supabase/migrations/20261107210000_foodbridge_backend_security.sql`
 3. `supabase/migrations/20261107222000_foodbridge_dashboard_fields.sql`
 4. `supabase/migrations/20261107234000_admin_delivery_dashboard.sql`
+5. `supabase/migrations/20261108130000_foodbridge_rescue_passport.sql`
 
 The second migration adds `profiles.is_suspended`, backend-only transaction
 functions, and additive policies. It does not create, drop, or redefine
@@ -117,6 +147,11 @@ proof receiver names, persisted delivery checkpoints, and the trusted stage
 transition function. It also synchronizes completed statuses and notifies the
 assigned NGO when a partner marks a delivery delivered. Review this additive
 migration and apply it before using the partner/admin dashboards.
+
+The fifth migration adds rescue escalation/outcome metadata and timeline
+responsible-user/location fields. It also enforces donor-provided preparation
+and minimum handling-window checks when NGOs accept a donation or a partner
+claims its delivery assignment.
 
 `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are backend-only. Never set the
 service-role key in any `VITE_` variable. The browser Supabase client uses only

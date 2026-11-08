@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Badge, Button, Card, InputField, SelectField } from "../../components/ui";
+import { FoodPassport } from "../../components/FoodPassport";
 import { useAuth } from "../../auth/AuthContext";
 import {
   dashboardErrorMessage,
@@ -565,23 +566,11 @@ function DonorDonationDetails({
                 </div>
               </div>
             </Card>
-            <Card className="p-5 sm:p-7">
-              <h2 className="font-semibold">Food passport timeline</h2>
-              <ol className="mt-5 space-y-0">
-                {[...(details.status_events ?? [])].sort((a, b) => new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime()).map((event, index) => (
-                  <li className="relative flex gap-4 pb-5 last:pb-0" key={`${event.updated_at}-${index}`}>
-                    {index < details.status_events.length - 1 ? <span className="absolute left-[0.46rem] top-3 h-full w-px bg-sage" /> : null}
-                    <span className="relative mt-1 h-4 w-4 shrink-0 rounded-full border-[3px] border-forest bg-white" />
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-charcoal">{pretty(event.status ?? "Update")}</p>
-                      <p className="mt-1 text-sm text-slate-600">{event.description || "Donation status updated."}</p>
-                      <p className="mt-1 text-xs text-slate-400">{dateLabel(event.updated_at)}</p>
-                    </div>
-                  </li>
-                ))}
-                {!details.status_events?.length ? <li className="text-sm text-slate-500">No timeline events have been recorded yet.</li> : null}
-              </ol>
-            </Card>
+            <FoodPassport
+              donationId={details.id}
+              donationStatus={details.status}
+              events={details.status_events ?? []}
+            />
           </div>
           <div className="space-y-5">
             <Card className="p-5">

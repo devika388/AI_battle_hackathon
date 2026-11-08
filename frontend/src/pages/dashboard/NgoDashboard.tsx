@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Badge, Button, Card, InputField } from "../../components/ui";
+import { FoodPassport } from "../../components/FoodPassport";
 import { useAuth } from "../../auth/AuthContext";
 import {
   dashboardErrorMessage,
@@ -592,18 +593,11 @@ function NgoDonationDetails({
                 </div>
               </div>
             </Card>
-            <Card className="p-5 sm:p-7">
-              <h2 className="font-semibold">Food passport timeline</h2>
-              <ol className="mt-5 space-y-4">
-                {[...(donation.status_events ?? [])].sort((a, b) => new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime()).map((item, index) => (
-                  <li className="flex gap-3" key={`${item.updated_at}-${index}`}>
-                    <span className="mt-1 h-3 w-3 shrink-0 rounded-full bg-forest ring-4 ring-[#eaf0e7]" />
-                    <div><p className="text-sm font-semibold">{pretty(item.status ?? "Update")}</p><p className="mt-1 text-sm text-slate-600">{item.description}</p><p className="mt-1 text-xs text-slate-400">{dateLabel(item.updated_at)}</p></div>
-                  </li>
-                ))}
-                {!donation.status_events?.length ? <li className="text-sm text-slate-500">No timeline events have been recorded.</li> : null}
-              </ol>
-            </Card>
+            <FoodPassport
+              donationId={donation.id}
+              donationStatus={donation.status}
+              events={donation.status_events ?? []}
+            />
           </div>
           <div className="space-y-5">
             <Card className="p-5">

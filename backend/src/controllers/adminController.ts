@@ -6,6 +6,7 @@ import {
   monitorAssignments,
   monitorDonations,
   rejectVerification,
+  scanCommunityRescue,
   setAccountSuspension,
   updateRescueRequest,
 } from "../services/adminService.js";
@@ -112,14 +113,24 @@ export async function listRescueRequestsController(
   response.json({ rescue_requests: await listRescueRequests(limit, offset) });
 }
 
+export async function scanCommunityRescueController(
+  request: Request,
+  response: Response,
+) {
+  const user = requireUser(request);
+  response.json({ scan: await scanCommunityRescue(user.id) });
+}
+
 export async function updateRescueRequestController(
   request: Request,
   response: Response,
 ) {
+  const user = requireUser(request);
   response.json({
     rescue_request: await updateRescueRequest(
       request.params.rescueId,
       request.body,
+      user.id,
     ),
   });
 }

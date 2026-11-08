@@ -62,7 +62,7 @@ const adminNav: { label: string; tab: DashboardTab }[] = [
   { label: "Delivery Partners", tab: "partners" },
   { label: "Donations", tab: "adminDonations" },
   { label: "Assignments", tab: "adminAssignments" },
-  { label: "Rescue Requests", tab: "requests" },
+  { label: "Rescue Management", tab: "requests" },
   { label: "Reports", tab: "reports" },
   { label: "Notifications", tab: "notifications" },
   { label: "Settings", tab: "settings" },

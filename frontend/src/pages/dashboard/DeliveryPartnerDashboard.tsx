@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { Badge, Button, Card, InputField } from "../../components/ui";
+import { FoodPassport } from "../../components/FoodPassport";
 import { useAuth } from "../../auth/AuthContext";
 import { dashboardErrorMessage, dashboardRequest } from "../../services/dashboardApi";
-import type { NotificationItem } from "../../types/food";
+import type { DonationDetails, NotificationItem } from "../../types/food";
 import {
   DashboardHeading,
   DashboardShell,
@@ -19,6 +20,7 @@ interface Assignment {
   ngo_id: string | null;
   status: string;
   delivery_stage: string;
+  estimated_duration_minutes?: number | null;
   assigned_at: string;
   donations: {
     id: string;
@@ -232,16 +234,26 @@ function AssignmentsList({
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState("");
   const [actionError, setActionError] = useState("");
+  const [estimatedDurations, setEstimatedDurations] = useState<Record<string, string>>({});
   const filtered = records.filter((assignment) => {
     const donation = assignment.donations;
     const haystack = `${donation?.food_name ?? ""} ${donation?.id ?? ""} ${donation?.city ?? ""} ${donation?.pickup_address ?? ""} ${assignment.ngo_profiles?.organization_name ?? ""}`.toLowerCase();
     return !search || haystack.includes(search.toLowerCase());
   });
   const accept = async (id: string) => {
+    const estimatedDuration = Number(estimatedDurations[id]);
+    if (!Number.isInteger(estimatedDuration) || estimatedDuration < 1 || estimatedDuration > 720) {
+      setActionError("Enter an estimated travel time from 1 to 720 minutes before accepting.");
+      return;
+    }
     setBusy(id);
     setActionError("");
     try {
-      await dashboardRequest(`/partners/assignments/${id}/accept`, { method: "POST" });
+      await dashboardRequest(`/partners/assignments/${id}/accept`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ estimated_duration_minutes: estimatedDuration }),
+      });
       await onChanged();
     } catch (failure) {
       setActionError(dashboardErrorMessage(failure, "Could not accept this assignment."));
@@ -251,7 +263,7 @@ function AssignmentsList({
   };
   return (
     <>
-      <DashboardHeading eyebrow={available ? "Verified partner routes" : "Your route book"} title={title} description={available ? "Only approved partners with availability enabled can claim an assignment. A claim is atomic, so it can only be accepted once." : "Track each delivery through pickup, transit, proof, and NGO confirmation."} />
+      <DashboardHeading eyebrow={available ? "Verified partner routes" : "Your route book"} title={title} description={available ? "Only approved partners with availability enabled can claim an assignment. Provide a travel estimate; acceptance is blocked if it and the handoff buffer exceed donor-provided expiry." : "Track each delivery through pickup, transit, proof, and NGO confirmation."} />
       <input aria-label="Search assignments" className="ds-field mb-5" onChange={(event) => setSearch(event.currentTarget.value)} placeholder="Search food, location, NGO, or donation ID" value={search} />
       {actionError ? <p className="mb-4 rounded-xl bg-red-50 p-4 text-sm text-red-800" role="alert">{actionError}</p> : null}
       {loading || error ? <DashboardState loading={loading} error={error} onRetry={onRetry} /> : !filtered.length ? <DashboardState empty /> : (
@@ -273,15 +285,63 @@ function AssignmentsList({
                 <Info label="Pickup deadline" value={dateLabel(assignment.donations?.expiry_time)} />
                 <Info label="Assignment status" value={nice(assignment.status)} />
                 <Info label="Delivery stage" value={nice(assignment.delivery_stage ?? assignment.status)} />
+                {assignment.estimated_duration_minutes ? <Info label="Partner travel estimate" value={`${assignment.estimated_duration_minutes} minutes`} /> : null}
               </div>
               {available ? (
-                <Button className="mt-4" disabled={busy === assignment.id} onClick={() => void accept(assignment.id)}>{busy === assignment.id ? "Accepting…" : "Accept assignment"}</Button>
-              ) : <AssignmentCard assignment={assignment} onChanged={onChanged} />}
+                <div className="mt-4 flex flex-wrap items-end gap-3">
+                  <label className="min-w-[14rem] flex-1 text-sm font-medium" htmlFor={`eta-${assignment.id}`}>
+                    Estimated travel time (minutes)
+                    <input
+                      aria-describedby={`eta-help-${assignment.id}`}
+                      className="ds-field mt-1"
+                      id={`eta-${assignment.id}`}
+                      max={720}
+                      min={1}
+                      onChange={(event) => setEstimatedDurations((current) => ({ ...current, [assignment.id]: event.currentTarget.value }))}
+                      required
+                      type="number"
+                      value={estimatedDurations[assignment.id] ?? ""}
+                    />
+                    <span className="mt-1 block text-xs font-normal text-slate-500" id={`eta-help-${assignment.id}`}>FoodBridge adds a 30-minute handoff buffer and checks the donor-provided expiry.</span>
+                  </label>
+                  <Button disabled={busy === assignment.id} onClick={() => void accept(assignment.id)}>{busy === assignment.id ? "Accepting…" : "Accept assignment"}</Button>
+                </div>
+              ) : (
+                <>
+                  {assignment.partner_id ? <PartnerFoodPassport donationId={assignment.donation_id} /> : null}
+                  <AssignmentCard assignment={assignment} onChanged={onChanged} />
+                </>
+              )}
             </Card>
           ))}
         </div>
       )}
     </>
+  );
+}
+
+function PartnerFoodPassport({ donationId }: { donationId: string }) {
+  const [details, setDetails] = useState<DonationDetails | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    void dashboardRequest<{ donation: DonationDetails }>(`/donations/${donationId}`)
+      .then((result) => { if (active) setDetails(result.donation); })
+      .catch((failure: unknown) => {
+        if (active) setError(dashboardErrorMessage(failure, "Could not load the donation passport."));
+      });
+    return () => { active = false; };
+  }, [donationId]);
+  if (error) return <p className="mt-4 text-sm text-red-700" role="alert">{error}</p>;
+  if (!details) return <p className="mt-4 text-sm text-slate-500">Loading food passport…</p>;
+  return (
+    <div className="mt-4">
+      <FoodPassport
+        donationId={details.id}
+        donationStatus={details.status}
+        events={details.status_events ?? []}
+      />
+    </div>
   );
 }
 

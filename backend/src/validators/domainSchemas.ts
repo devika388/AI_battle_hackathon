@@ -79,6 +79,10 @@ export const deliveryStageSchema = z.object({
   stage: z.enum(["pickup_started", "picked_up", "in_transit", "arrived"]),
 });
 
+export const assignmentAcceptSchema = z.object({
+  estimated_duration_minutes: z.coerce.number().int().min(1).max(720),
+});
+
 export const suspensionSchema = z.object({
   is_suspended: z.boolean(),
 });
@@ -89,6 +93,8 @@ export const verificationRejectionSchema = z.object({
 
 export const rescueUpdateSchema = z.object({
   status: z.enum(["open", "assigned", "resolved", "cancelled"]),
+  outcome: z.enum(["rescued", "blocked"]).nullable().optional(),
+  resolution_notes: z.string().trim().max(2000).nullable().optional(),
   assigned_partner_id: uuid.nullable().optional(),
 });
 

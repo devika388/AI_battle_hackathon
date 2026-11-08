@@ -6,6 +6,7 @@ import {
 } from "../validators/domainSchemas.js";
 import { HttpError } from "../utils/HttpError.js";
 import { getSupabaseAdmin } from "./supabaseAdmin.js";
+import { recordDonationEvent } from "./foodPassportService.js";
 import {
   failDatabase,
   getOwnedProfileId,
@@ -35,7 +36,15 @@ export async function createDonation(userId: string, input: DonationCreate) {
     },
   );
   if (error) failDatabase(error, "Could not create donation:");
-  return Array.isArray(data) ? data[0] : data;
+  const donation = Array.isArray(data) ? data[0] : data;
+  await recordDonationEvent({
+    donationId: donation.id,
+    status: "ngo_matching_started",
+    description: "NGO matching started using the donor-provided food and handling details.",
+    responsibleUserId: userId,
+    location: `${input.pickup_address}, ${input.city}`,
+  });
+  return donation;
 }
 
 export async function listEligibleDonations(
@@ -48,7 +57,8 @@ export async function listEligibleDonations(
     .from("donations")
     .select("*")
     .eq("status", "available")
-    .gt("expiry_time", new Date().toISOString())
+    .gt("expiry_time", new Date(Date.now() + 2 * 60 * 60_000).toISOString())
+    .lte("preparation_time", new Date().toISOString())
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
   if (error) failDatabase(error, "Could not load eligible donations:");
@@ -130,10 +140,17 @@ export async function getDonation(
   if (!data) throw new HttpError("Donation not found.", 404);
   const { data: events, error: eventsError } = await supabase
     .from("status_events")
-    .select("status, description, updated_at")
+    .select("status, description, updated_at, responsible_user_id, location")
     .eq("donation_id", donationId)
     .order("updated_at", { ascending: true });
   if (eventsError) failDatabase(eventsError, "Could not load donation history:");
+  const responsibleIds = [...new Set((events ?? [])
+    .map((event) => event.responsible_user_id)
+    .filter((id): id is string => Boolean(id)))];
+  const { data: responsibleUsers, error: responsibleError } = responsibleIds.length
+    ? await supabase.from("profiles").select("id, full_name").in("id", responsibleIds)
+    : { data: [], error: null };
+  if (responsibleError) failDatabase(responsibleError, "Could not load timeline participants:");
   const [
     { data: assignments, error: assignmentError },
     { data: matches, error: matchError },
@@ -165,7 +182,10 @@ export async function getDonation(
   if (proofError) failDatabase(proofError, "Could not load delivery proof records:");
   return {
     ...data,
-    status_events: events ?? [],
+    status_events: (events ?? []).map((event) => ({
+      ...event,
+      responsible_user: responsibleUsers?.find((user) => user.id === event.responsible_user_id) ?? null,
+    })),
     assignment,
     matches: matches ?? [],
     delivery_proofs: proofs ?? [],
@@ -282,7 +302,8 @@ export async function listMatchingDonations(
         .from("donations")
         .select("*")
         .eq("status", "available")
-        .gt("expiry_time", new Date().toISOString())
+    .gt("expiry_time", new Date(Date.now() + 2 * 60 * 60_000).toISOString())
+    .lte("preparation_time", new Date().toISOString())
         .order("created_at", { ascending: false });
   if (declinedDonationIds.length) {
     availableDonationsQuery = availableDonationsQuery.not(
@@ -414,5 +435,35 @@ export async function confirmNgoReceipt(userId: string, assignmentId: string) {
     if (error.code === "55000") throw new HttpError("Only delivered donations can be confirmed.", 409);
     failDatabase(error, "Could not confirm NGO receipt:");
   }
-  return Array.isArray(data) ? data[0] : data;
+  const result = Array.isArray(data) ? data[0] : data;
+  await recordDonationEvent({
+    donationId: result.donation_id,
+    status: "ngo_confirmed_receipt",
+    description: "NGO confirmed receipt of the donation.",
+    responsibleUserId: userId,
+  });
+  const { data: rescueRequests, error: rescueError } = await getSupabaseAdmin()
+    .from("rescue_requests")
+    .select("id")
+    .eq("donation_id", result.donation_id)
+    .in("status", ["open", "assigned"]);
+  if (rescueError) failDatabase(rescueError, "Could not finalize the community rescue request:");
+  if (rescueRequests?.length) {
+    const { error: updateError } = await getSupabaseAdmin()
+      .from("rescue_requests")
+      .update({
+        status: "resolved",
+        outcome: "rescued",
+        resolution_notes: "NGO receipt was confirmed through the delivery workflow.",
+      })
+      .in("id", rescueRequests.map((item) => item.id));
+    if (updateError) failDatabase(updateError, "Could not record completed community rescue:");
+  }
+  await recordDonationEvent({
+    donationId: result.donation_id,
+    status: "rescue_completed",
+    description: "Rescue completed after NGO receipt confirmation.",
+    responsibleUserId: userId,
+  });
+  return result;
 }
