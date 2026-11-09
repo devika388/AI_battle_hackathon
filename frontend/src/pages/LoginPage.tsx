@@ -1,7 +1,11 @@
 import { useState, type FormEvent } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { AuthLayout, FormMessage, FormSubmit } from "../components/auth/AuthLayout";
+import {
+  AuthLayout,
+  FormMessage,
+  FormSubmit,
+} from "../components/auth/AuthLayout";
 import { InputField } from "../components/ui";
 import { getSupabaseClient } from "../services/supabaseClient";
 import { dashboardPath } from "../auth/routeGuards";
@@ -12,15 +16,40 @@ interface LoginLocationState {
 }
 
 export function LoginPage() {
-  const { user, ready, configError, refreshProfile } = useAuth();
+  const {
+    user,
+    profile,
+    ready,
+    configError,
+    sessionNotice,
+    refreshProfile,
+  } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const state = location.state as LoginLocationState | null;
   const [message, setMessage] = useState(state?.message ?? "");
   const [loading, setLoading] = useState(false);
+  const [retryingProfile, setRetryingProfile] = useState(false);
+  const [profileRetryError, setProfileRetryError] = useState("");
 
-  if (ready && user) {
-    return <Navigate replace to="/dashboard" />;
+  if (!ready) {
+    return (
+      <AuthLayout
+        eyebrow="Secure account"
+        title="Checking your session."
+        description="FoodBridge is restoring your saved sign-in before continuing."
+      >
+        <div
+          aria-label="Checking session"
+          className="h-1.5 w-full animate-pulse rounded-full bg-sage"
+          role="status"
+        />
+      </AuthLayout>
+    );
+  }
+
+  if (user && profile?.id === user.id) {
+    return <Navigate replace to={dashboardPath(profile)} />;
   }
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -57,8 +86,9 @@ export function LoginPage() {
         data.user.user_metadata?.registration,
       );
       if (!profile) {
-        await getSupabaseClient().auth.signOut();
-        setMessage("We couldn't find saved registration details for this account. Contact support rather than registering again with the same email.");
+        setMessage(
+          "Your sign-in is active, but we couldn't load your FoodBridge profile. Retry profile loading or contact support.",
+        );
         return;
       }
 
@@ -79,6 +109,27 @@ export function LoginPage() {
     }
   };
 
+  const retryProfile = async () => {
+    setRetryingProfile(true);
+    setProfileRetryError("");
+    try {
+      const currentProfile = await refreshProfile();
+      if (!currentProfile) {
+        setProfileRetryError(
+          "Your profile is still unavailable. Please try again or contact support.",
+        );
+      }
+    } catch (error) {
+      setProfileRetryError(
+        error instanceof Error
+          ? error.message
+          : "We couldn't load your profile. Please try again.",
+      );
+    } finally {
+      setRetryingProfile(false);
+    }
+  };
+
   return (
     <AuthLayout
       title="Welcome back."
@@ -86,6 +137,30 @@ export function LoginPage() {
     >
       {state?.message && !message ? (
         <FormMessage message={state.message} tone="info" />
+      ) : null}
+      {user && profile?.id !== user.id ? (
+        <div className="mb-5 space-y-3">
+          <FormMessage
+            message={
+              profileRetryError ||
+              sessionNotice ||
+              "Your sign-in is active, but your account profile could not be loaded."
+            }
+          />
+          <button
+            className="inline-flex min-h-11 items-center justify-center rounded-2xl bg-forest px-5 text-sm font-semibold text-white disabled:opacity-60"
+            disabled={retryingProfile}
+            onClick={() => void retryProfile()}
+            type="button"
+          >
+            {retryingProfile ? "Retrying profile…" : "Retry profile"}
+          </button>
+        </div>
+      ) : null}
+      {!user && sessionNotice ? (
+        <div className="mb-5">
+          <FormMessage message={sessionNotice} />
+        </div>
       ) : null}
       <form className="space-y-5" onSubmit={submit}>
         <InputField

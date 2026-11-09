@@ -75,7 +75,8 @@ Directory** at the repository root so npm can use the root workspace and
 Set these environment variables on the backend service:
 
 - `FRONTEND_ORIGIN`: the deployed frontend's exact `https://...onrender.com`
-  origin (no trailing slash)
+  origin (no trailing slash). `http://localhost:5173` is also allowed for
+  local development.
 - `SUPABASE_URL`: your Supabase project URL
 - `SUPABASE_SERVICE_ROLE_KEY`: the Supabase service-role key; backend only
 - `DEMO_MODE`: `false` for the real app, or `true` for the read-only demo
@@ -117,7 +118,7 @@ are documented in [`backend/API.md`](./backend/API.md).
 | Variable | Purpose | Default |
 |---|---|---|
 | `API_PORT` | Express listening port | `3001` |
-| `FRONTEND_ORIGIN` | Allowed browser origin for API requests | `http://localhost:5173` |
+| `FRONTEND_ORIGIN` | Deployed browser origin; localhost is also allowed | `http://localhost:5173` |
 | `DEMO_MODE` | Serve only public read-only demo API endpoints | `false` |
 | `VITE_API_BASE_URL` | API prefix used by the frontend and Vite proxy | `/api` |
 | `VITE_DEMO_MODE` | Show the no-login sample dashboard | `false` |

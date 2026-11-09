@@ -60,7 +60,7 @@ export function ProtectedRoute({
     );
   }
 
-  if (!profile) {
+  if (!profile || profile.id !== user.id) {
     return (
       <AuthLayout
         eyebrow="Account setup"

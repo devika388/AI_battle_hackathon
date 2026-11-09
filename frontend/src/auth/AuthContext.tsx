@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import type { Session, User } from "@supabase/supabase-js";
-import { ApiError, requestJson } from "../services/apiClient";
+import { requestJson } from "../services/apiClient";
 import { ensureRegistrationProfiles } from "../services/registrationProfiles";
 import { getSupabaseClient } from "../services/supabaseClient";
 import type {
@@ -47,7 +47,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }),
       "The account service did not respond. Check that the backend is running, then try again.",
     );
-    setProfile(response.profile);
     return response.profile;
   }, []);
 
@@ -68,20 +67,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setProfile(null);
         return null;
       }
-      if (registrationMetadata && authenticatedUser) {
-        await ensureRegistrationProfiles(authenticatedUser, registrationMetadata);
-      }
       try {
+        if (registrationMetadata && authenticatedUser) {
+          await ensureRegistrationProfiles(authenticatedUser, registrationMetadata);
+        }
         const currentProfile = await loadProfile(token);
-        if (currentProfile) setSessionNotice(null);
+        setProfile(currentProfile);
+        setSessionNotice(
+          currentProfile
+            ? null
+            : "Your account profile is not available yet. Retry profile setup or contact support.",
+        );
         return currentProfile;
       } catch (error) {
-        if (error instanceof ApiError && error.status === 401) {
-          setUser(null);
-          setProfile(null);
-          setSessionNotice("Your session expired. Please sign in again.");
-          await supabase.auth.signOut();
-        }
+        setProfile(null);
+        setSessionNotice(
+          error instanceof Error
+            ? error.message
+            : "We couldn't verify your account profile.",
+        );
         throw error;
       }
     },
@@ -100,6 +104,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let active = true;
     let generation = 0;
+    let latestSessionToken: string | null | undefined;
     let supabase: ReturnType<typeof getSupabaseClient>;
     try {
       supabase = getSupabaseClient();
@@ -112,73 +117,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     const syncSession = async (session: Session | null) => {
+      const sessionToken = session?.access_token ?? null;
+      if (sessionToken === latestSessionToken) return;
+      latestSessionToken = sessionToken;
       const currentGeneration = ++generation;
       if (!session) {
         if (!active || currentGeneration !== generation) return;
         setUser(null);
         setProfile(null);
+        setSessionNotice(null);
         setReady(true);
         return;
       }
 
+      setReady(false);
+      setUser(session.user);
+      setProfile(null);
+      setSessionNotice(null);
       try {
-        const { data, error } = await withTimeout(
-          supabase.auth.getUser(session.access_token),
-          "Supabase did not respond while checking your session. Check your connection and Supabase configuration, then sign in again.",
+        await ensureRegistrationProfiles(
+          session.user,
+          session.user.user_metadata?.registration,
         );
+        const currentProfile = await loadProfile(session.access_token);
         if (!active || currentGeneration !== generation) return;
-        if (error || !data.user) {
-          setUser(null);
-          setProfile(null);
-          setSessionNotice("Your session expired. Please sign in again.");
-          await supabase.auth.signOut();
-          setReady(true);
-          return;
-        }
-
-        setUser(data.user);
-        setSessionNotice(null);
-        try {
-          await ensureRegistrationProfiles(
-            data.user,
-            data.user.user_metadata?.registration,
+        setProfile(currentProfile);
+        if (!currentProfile) {
+          setSessionNotice(
+            "Your account profile is not available yet. Retry profile setup or contact support.",
           );
-          const currentProfile = await loadProfile(session.access_token);
-          if (!currentProfile) {
-            setSessionNotice("Your account profile is not set up. Retry profile setup or contact support.");
-          }
-        } catch (profileError) {
-          if (!active || currentGeneration !== generation) return;
-          if (profileError instanceof ApiError && profileError.status === 401) {
-            setUser(null);
-            setProfile(null);
-            setSessionNotice("Your session expired. Please sign in again.");
-            await supabase.auth.signOut();
-          } else if (
-            profileError instanceof ApiError &&
-            profileError.status === 403
-          ) {
-            setProfile(null);
-            setSessionNotice(profileError.message);
-          } else {
-            setProfile(null);
-            setSessionNotice(
-              profileError instanceof Error
-                ? profileError.message
-                : "We couldn't verify your account profile.",
-            );
-          }
         }
       } catch (error) {
         if (!active || currentGeneration !== generation) return;
-        setUser(null);
         setProfile(null);
         setSessionNotice(
           error instanceof Error
             ? error.message
-            : "Your session could not be verified. Please sign in again.",
+            : "We couldn't verify your account profile.",
         );
-        await supabase.auth.signOut();
       } finally {
         if (active && currentGeneration === generation) setReady(true);
       }
@@ -186,17 +162,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "INITIAL_SESSION") return;
       window.setTimeout(() => void syncSession(session), 0);
     });
 
     void supabase.auth.getSession().then(({ data, error }) => {
+      if (!active || latestSessionToken !== undefined) return;
       if (error) {
         setSessionNotice(error.message);
         setReady(true);
         return;
       }
       void syncSession(data.session);
+    }).catch((error: unknown) => {
+      if (!active || latestSessionToken !== undefined) return;
+      setSessionNotice(
+        error instanceof Error
+          ? error.message
+          : "Your saved session could not be restored. Please try again.",
+      );
+      setReady(true);
     });
 
     return () => {

@@ -19,9 +19,16 @@ function readDemoMode(value: string | undefined): boolean {
   throw new Error("DEMO_MODE must be true or false.");
 }
 
+const frontendOrigin = (process.env.FRONTEND_ORIGIN ?? "http://localhost:5173")
+  .trim()
+  .replace(/\/+$/, "");
+
 export const env = {
   port: readPort(process.env.PORT ?? process.env.API_PORT),
-  frontendOrigin: process.env.FRONTEND_ORIGIN ?? "http://localhost:5173",
+  frontendOrigin,
+  frontendOrigins: [
+    ...new Set([frontendOrigin, "http://localhost:5173"]),
+  ].filter(Boolean),
   demoMode: readDemoMode(process.env.DEMO_MODE),
   supabaseUrl: process.env.SUPABASE_URL,
   supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,

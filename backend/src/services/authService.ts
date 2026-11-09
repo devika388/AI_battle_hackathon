@@ -66,7 +66,10 @@ export async function getAuthProfile(userId: string): Promise<AuthProfile | null
     .maybeSingle();
 
   if (error) {
-    console.error("Could not read the authenticated user's profile:", error);
+    console.error("Could not read the authenticated user's profile.", {
+      userId,
+      code: error.code,
+    });
     throw new HttpError("We couldn't load your account profile.", 500);
   }
   if (!data) return null;
@@ -81,7 +84,10 @@ export async function getAuthProfile(userId: string): Promise<AuthProfile | null
       .eq("user_id", userId)
       .maybeSingle();
     if (ngoError) {
-      console.error("Could not read NGO approval status:", ngoError);
+      console.error("Could not read NGO approval status.", {
+        userId,
+        code: ngoError.code,
+      });
       throw new HttpError("We couldn't load your approval status.", 500);
     }
     isApproved = ngoProfile?.is_verified === true;
@@ -94,7 +100,10 @@ export async function getAuthProfile(userId: string): Promise<AuthProfile | null
       .eq("user_id", userId)
       .maybeSingle();
     if (partnerError) {
-      console.error("Could not read delivery partner approval status:", partnerError);
+      console.error("Could not read delivery partner approval status.", {
+        userId,
+        code: partnerError.code,
+      });
       throw new HttpError("We couldn't load your approval status.", 500);
     }
     verificationStatus = partnerProfile?.verification_status ?? null;

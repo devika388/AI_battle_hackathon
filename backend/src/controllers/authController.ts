@@ -16,9 +16,15 @@ export const authProfileController: RequestHandler = async (
     const user = request.authUser;
     if (!user) throw new HttpError("Sign in to continue.", 401);
 
+    const profile = await getAuthProfile(user.id);
+    console.info("Authenticated profile lookup completed.", {
+      userId: user.id,
+      found: profile !== null,
+      role: profile?.role ?? null,
+    });
     response.json({
       user: { id: user.id, email: user.email ?? null },
-      profile: await getAuthProfile(user.id),
+      profile,
     });
   } catch (error) {
     next(error);
