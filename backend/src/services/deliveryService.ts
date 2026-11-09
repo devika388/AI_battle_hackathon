@@ -26,14 +26,7 @@ export async function listAvailableAssignments(
   limit: number,
   offset: number,
 ) {
-  const partnerId = await requireVerifiedPartner(userId);
-  const { data: partner, error: partnerError } = await getSupabaseAdmin()
-    .from("partner_profiles")
-    .select("availability")
-    .eq("id", partnerId)
-    .single();
-  if (partnerError) failDatabase(partnerError, "Could not load partner availability:");
-  if (!partner.availability) return [];
+  await requireVerifiedPartner(userId);
 
   const { data, error } = await getSupabaseAdmin()
     .from("donation_assignments")
@@ -41,7 +34,7 @@ export async function listAvailableAssignments(
     .is("partner_id", null)
     .eq("status", "accepted")
     .eq("donations.status", "matched")
-    .gt("donations.expiry_time", new Date(Date.now() + 2 * 60 * 60_000).toISOString())
+    .gt("donations.expiry_time", new Date().toISOString())
     .lte("donations.preparation_time", new Date().toISOString())
     .order("assigned_at", { ascending: true })
     .range(offset, offset + limit - 1);
@@ -65,9 +58,18 @@ export async function acceptAssignment(
   );
   if (error) {
     if (error.code === "P0002") throw new HttpError("Assignment not found.", 404);
-    if (error.code === "23505" || error.code === "55000" || error.code === "42501") {
+    if (error.code === "42501") {
       throw new HttpError(
-        "This assignment is unavailable, or the estimated travel time and 30-minute handoff buffer do not fit before donor-provided expiry.",
+        "Turn on delivery availability in your profile before accepting an assignment.",
+        403,
+      );
+    }
+    if (error.code === "23505") {
+      throw new HttpError("Another delivery partner has already accepted this assignment.", 409);
+    }
+    if (error.code === "55000") {
+      throw new HttpError(
+        "This assignment is no longer available, the donation has expired or is not ready, or the travel estimate plus 30-minute handoff buffer does not fit before expiry.",
         409,
       );
     }

@@ -60,6 +60,53 @@ To run the compiled backend after building:
 npm run start:backend
 ```
 
+## Deploy on Render
+
+Deploy this repository as two Render services. Keep each service's **Root
+Directory** at the repository root so npm can use the root workspace and
+`package-lock.json`.
+
+### Backend web service
+
+- **Build Command:** `npm ci && npm run build --workspace backend`
+- **Start Command:** `npm run start --workspace backend`
+- **Health Check Path:** `/api/health`
+
+Set these environment variables on the backend service:
+
+- `FRONTEND_ORIGIN`: the deployed frontend's exact `https://...onrender.com`
+  origin (no trailing slash)
+- `SUPABASE_URL`: your Supabase project URL
+- `SUPABASE_SERVICE_ROLE_KEY`: the Supabase service-role key; backend only
+- `DEMO_MODE`: `false` for the real app, or `true` for the read-only demo
+
+The backend listens on Render's `PORT` automatically. Do not set
+`SUPABASE_SERVICE_ROLE_KEY` on the frontend.
+
+### Frontend static site
+
+- **Build Command:** `npm ci && npm run build --workspace frontend`
+- **Publish Directory:** `frontend/dist`
+
+Set these build environment variables on the static site:
+
+- `VITE_API_BASE_URL`: the backend URL followed by `/api`, for example
+  `https://foodbridge-api.onrender.com/api`
+- `VITE_SUPABASE_URL`: your Supabase project URL
+- `VITE_SUPABASE_ANON_KEY`: your Supabase anon/publishable key
+- `VITE_DEMO_MODE`: `false` for the real app, or `true` for the read-only demo
+- `VITE_PUBLIC_CONTACT_EMAIL`: optional contact-form email address
+
+For React Router deep links to load on refresh, add a Render rewrite from
+`/*` to `/index.html`.
+
+Deploy the backend first, then set the frontend's backend URL and deploy the
+static site. Copy its Render URL into the backend's `FRONTEND_ORIGIN` and
+redeploy/restart the backend. Before using account features, apply the
+Supabase migrations in `supabase/migrations/` in order and allow the deployed
+frontend URL plus `/auth/callback` and `/reset-password` in Supabase Auth
+redirect settings.
+
 The backend API routes, payloads, access roles, and delivery-proof upload format
 are documented in [`backend/API.md`](./backend/API.md).
 
@@ -148,7 +195,16 @@ RLS and must only be available to the backend.
 14. Apply [`supabase/migrations/20261109140000_foodbridge_fix_accept_donation_status.sql`](./supabase/migrations/20261109140000_foodbridge_fix_accept_donation_status.sql)
     to fix the PostgreSQL return-type mismatch in the NGO donation-acceptance
     function.
-15. Start the frontend and backend with `npm run dev`.
+15. Apply [`supabase/migrations/20261109150000_foodbridge_fix_accept_assignment_status.sql`](./supabase/migrations/20261109150000_foodbridge_fix_accept_assignment_status.sql)
+    to fix the PostgreSQL return-type mismatch in delivery-partner assignment
+    acceptance.
+16. Apply [`supabase/migrations/20261109153000_foodbridge_fix_delivery_stage_return_types.sql`](./supabase/migrations/20261109153000_foodbridge_fix_delivery_stage_return_types.sql)
+    to fix return-type mismatches when delivery partners update pickup and
+    journey checkpoints.
+17. Apply [`supabase/migrations/20261109160000_foodbridge_fix_delivery_status_return_type.sql`](./supabase/migrations/20261109160000_foodbridge_fix_delivery_status_return_type.sql)
+    to fix the PostgreSQL return-type mismatch when a delivery partner
+    confirms the delivery after submitting proof.
+18. Start the frontend and backend with `npm run dev`.
 
 The registration handler uses the inspected schema: `profiles.id` is the auth
 user UUID; contact details go in `profiles`; donor, NGO, and vehicle details go

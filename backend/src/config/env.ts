@@ -20,7 +20,7 @@ function readDemoMode(value: string | undefined): boolean {
 }
 
 export const env = {
-  port: readPort(process.env.API_PORT),
+  port: readPort(process.env.PORT ?? process.env.API_PORT),
   frontendOrigin: process.env.FRONTEND_ORIGIN ?? "http://localhost:5173",
   demoMode: readDemoMode(process.env.DEMO_MODE),
   supabaseUrl: process.env.SUPABASE_URL,

@@ -23,6 +23,12 @@ export function failDatabase(error: unknown, message: string): never {
       500,
     );
   }
+  if (code === "42804") {
+    throw new HttpError(
+      "A Supabase database function has an outdated return type. Apply the pending FoodBridge migrations, then retry.",
+      500,
+    );
+  }
   throw new HttpError("The request could not be completed. Please try again.", 500);
 }
 

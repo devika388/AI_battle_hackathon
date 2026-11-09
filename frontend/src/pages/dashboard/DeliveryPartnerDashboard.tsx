@@ -101,6 +101,8 @@ export function DeliveryPartnerDashboard() {
   const [partnerProfile, setPartnerProfile] = useState<PartnerProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [availabilityError, setAvailabilityError] = useState("");
+  const [updatingAvailability, setUpdatingAvailability] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -125,6 +127,31 @@ export function DeliveryPartnerDashboard() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  const enableAvailability = async () => {
+    setUpdatingAvailability(true);
+    setAvailabilityError("");
+    try {
+      await dashboardRequest("/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ availability: true }),
+      });
+      setPartnerProfile((current) =>
+        current ? { ...current, availability: true } : current,
+      );
+      await load();
+    } catch (availabilityFailure) {
+      setAvailabilityError(
+        dashboardErrorMessage(
+          availabilityFailure,
+          "Could not enable delivery availability.",
+        ),
+      );
+    } finally {
+      setUpdatingAvailability(false);
+    }
+  };
 
   const stats = useMemo(() => ({
     assigned: assignments.filter((item) => item.status === "assigned").length,
@@ -153,6 +180,10 @@ export function DeliveryPartnerDashboard() {
           error={error}
           onRetry={load}
           onChanged={load}
+          partnerAvailable={partnerProfile?.availability === true}
+          onEnableAvailability={enableAvailability}
+          availabilityError={availabilityError}
+          updatingAvailability={updatingAvailability}
           available
         />
       ) : null}
@@ -231,6 +262,10 @@ function AssignmentsList({
   onRetry,
   onChanged,
   available = false,
+  partnerAvailable = true,
+  onEnableAvailability,
+  availabilityError = "",
+  updatingAvailability = false,
 }: {
   title: string;
   records: Assignment[];
@@ -239,12 +274,20 @@ function AssignmentsList({
   onRetry: () => void;
   onChanged: () => void;
   available?: boolean;
+  partnerAvailable?: boolean;
+  onEnableAvailability?: () => void;
+  availabilityError?: string;
+  updatingAvailability?: boolean;
 }) {
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState("");
   const [actionError, setActionError] = useState("");
   const [estimatedDurations, setEstimatedDurations] = useState<Record<string, string>>({});
+  const [claimedAssignments, setClaimedAssignments] = useState<Set<string>>(
+    () => new Set(),
+  );
   const filtered = records.filter((assignment) => {
+    if (available && claimedAssignments.has(assignment.id)) return false;
     const donation = assignment.donations;
     const haystack = `${donation?.food_name ?? ""} ${donation?.id ?? ""} ${donation?.city ?? ""} ${donation?.pickup_address ?? ""} ${assignment.ngo_profiles?.organization_name ?? ""}`.toLowerCase();
     return !search || haystack.includes(search.toLowerCase());
@@ -263,6 +306,7 @@ function AssignmentsList({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ estimated_duration_minutes: estimatedDuration }),
       });
+      setClaimedAssignments((current) => new Set(current).add(id));
       await onChanged();
     } catch (failure) {
       setActionError(dashboardErrorMessage(failure, "Could not accept this assignment."));
@@ -272,10 +316,40 @@ function AssignmentsList({
   };
   return (
     <>
-      <DashboardHeading eyebrow={available ? "Verified partner routes" : "Your route book"} title={title} description={available ? "Only approved partners with availability enabled can claim an assignment. Provide a travel estimate; acceptance is blocked if it and the handoff buffer exceed donor-provided expiry." : "Track each delivery through pickup, transit, proof, and NGO confirmation."} />
+      <DashboardHeading eyebrow={available ? "Verified partner routes" : "Your route book"} title={title} description={available ? "View assignments accepted by NGOs. Turn on availability to claim a route; your travel estimate and the handoff buffer must fit before the donor-provided expiry." : "Track each delivery through pickup, transit, proof, and NGO confirmation."} />
       <input aria-label="Search assignments" className="ds-field mb-5" onChange={(event) => setSearch(event.currentTarget.value)} placeholder="Search food, location, NGO, or donation ID" value={search} />
       {actionError ? <p className="mb-4 rounded-xl bg-red-50 p-4 text-sm text-red-800" role="alert">{actionError}</p> : null}
-      {loading || error ? <DashboardState loading={loading} error={error} onRetry={onRetry} /> : !filtered.length ? <DashboardState empty /> : (
+      {available && !partnerAvailable ? (
+        <Card className="mb-5 border border-sage/40 bg-[#f7f8f3] p-5">
+          <h2 className="font-semibold text-charcoal">Availability is off</h2>
+          <p className="mt-1 text-sm leading-6 text-slate-600">
+            Turn on availability to see delivery assignments accepted by NGOs.
+            You can turn it off again from your profile at any time.
+          </p>
+          {availabilityError ? (
+            <p className="mt-3 text-sm text-red-700" role="alert">{availabilityError}</p>
+          ) : null}
+          <Button
+            className="mt-4"
+            disabled={updatingAvailability}
+            onClick={onEnableAvailability}
+          >
+            {updatingAvailability ? "Enabling…" : "Enable availability"}
+          </Button>
+        </Card>
+      ) : null}
+      {loading || error ? <DashboardState loading={loading} error={error} onRetry={onRetry} /> : !filtered.length ? available && records.length === 0 ? (
+        <Card className="p-6">
+          <h2 className="font-semibold text-charcoal">No delivery assignments available</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            NGO acceptance creates an unassigned delivery job; it does not assign
+            a partner automatically. Jobs appear here only while the donation
+            is still eligible for pickup. If the NGO dashboard still shows an
+            accepted donation but this list is empty, check its expiry time and
+            ask the donor to post a fresh donation if it has expired.
+          </p>
+        </Card>
+      ) : <DashboardState empty /> : (
         <div className="grid gap-4 xl:grid-cols-2">
           {filtered.map((assignment) => (
             <Card className="p-5" key={assignment.id}>
@@ -285,7 +359,11 @@ function AssignmentsList({
                   <h2 className="mt-2 text-lg font-semibold">{assignment.donations?.food_name ?? "Food donation"}</h2>
                   <p className="mt-1 text-sm text-slate-600">{assignment.donations?.quantity} {assignment.donations?.quantity_unit}</p>
                 </div>
-                <Badge tone={assignment.status === "completed" ? "forest" : "butter"}>{nice(assignment.status)}</Badge>
+                <Badge tone={assignment.status === "completed" ? "forest" : "butter"}>
+                  {available && assignment.status === "accepted"
+                    ? "Awaiting partner"
+                    : nice(assignment.status)}
+                </Badge>
               </div>
               <div className="mt-4 grid gap-3 rounded-xl bg-[#f7f6f0] p-4 text-sm sm:grid-cols-2">
                 <Info label="Pickup" value={`${assignment.donations?.pickup_address ?? "—"}, ${assignment.donations?.city ?? ""}`} />
@@ -326,14 +404,20 @@ function AssignmentsList({
                       id={`eta-${assignment.id}`}
                       max={720}
                       min={1}
-                      onChange={(event) => setEstimatedDurations((current) => ({ ...current, [assignment.id]: event.currentTarget.value }))}
+                      onChange={(event) => {
+                        const value = event.currentTarget.value;
+                        setEstimatedDurations((current) => ({
+                          ...current,
+                          [assignment.id]: value,
+                        }));
+                      }}
                       required
                       type="number"
                       value={estimatedDurations[assignment.id] ?? ""}
                     />
                     <span className="mt-1 block text-xs font-normal text-slate-500" id={`eta-help-${assignment.id}`}>FoodBridge adds a 30-minute handoff buffer and checks the donor-provided expiry.</span>
                   </label>
-                  <Button disabled={busy === assignment.id} onClick={() => void accept(assignment.id)}>{busy === assignment.id ? "Accepting…" : "Accept assignment"}</Button>
+                  <Button disabled={!partnerAvailable || busy === assignment.id} onClick={() => void accept(assignment.id)}>{busy === assignment.id ? "Accepting…" : partnerAvailable ? "Accept assignment" : "Enable availability to accept"}</Button>
                 </div>
               ) : (
                 <>

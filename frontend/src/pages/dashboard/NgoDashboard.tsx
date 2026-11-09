@@ -299,7 +299,17 @@ function Overview({
                         <span className="block truncate text-sm font-semibold">{item.donations.food_name}</span>
                         <span className="mt-1 block text-xs text-slate-500">Updated {dateLabel(item.assigned_at)}</span>
                       </span>
-                      <Badge tone={statusTone[item.status] ?? "neutral"}>{pretty(item.status)}</Badge>
+                      <div className="text-right">
+                        <Badge tone={statusTone[item.status] ?? "neutral"}>{pretty(item.status)}</Badge>
+                        {item.status === "accepted" && !item.partner_id ? (
+                          <p className="mt-1 max-w-xs text-xs text-slate-600">
+                            {item.donations?.expiry_time &&
+                            new Date(item.donations.expiry_time).getTime() <= Date.now()
+                              ? "No partner accepted before expiry. Ask the donor to post a fresh donation."
+                              : "Waiting for an available delivery partner to accept this job."}
+                          </p>
+                        ) : null}
+                      </div>
                     </button>
                   ) : null)}
                 </div>
@@ -556,7 +566,17 @@ function AcceptedDonations({
                   <p className="mt-1 text-sm text-slate-600">{item.donations ? `${item.donations.quantity} ${item.donations.quantity_unit} · ${item.donations.city ?? item.donations.pickup_address}` : "Donation details unavailable"}</p>
                   <p className="mt-1 truncate font-mono text-[0.68rem] text-slate-400">{item.donation_id}</p>
                 </div>
-                <Badge tone={statusTone[item.status] ?? "neutral"}>{pretty(item.status)}</Badge>
+                <div className="text-right">
+                  <Badge tone={statusTone[item.status] ?? "neutral"}>{pretty(item.status)}</Badge>
+                  {mode === "accepted" && item.status === "accepted" && !item.partner_id ? (
+                    <p className="mt-1 max-w-xs text-xs text-slate-600">
+                      {item.donations?.expiry_time &&
+                      new Date(item.donations.expiry_time).getTime() <= Date.now()
+                        ? "No partner accepted before expiry. Ask the donor to post a fresh donation."
+                        : "Waiting for an available delivery partner to accept this job."}
+                    </p>
+                  ) : null}
+                </div>
                 <div className="flex gap-2">
                   {item.donations ? <Button onClick={() => onOpen(item.donation_id)} size="sm" variant="secondary">Details</Button> : null}
                   {item.status === "delivered" ? (
