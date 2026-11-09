@@ -11,8 +11,8 @@ import {
   FormSubmit,
 } from "../components/auth/AuthLayout";
 import { InputField } from "../components/ui";
-import { requestJson } from "../services/apiClient";
 import { getSupabaseClient } from "../services/supabaseClient";
+import { ensureRegistrationProfiles } from "../services/registrationProfiles";
 
 export function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -205,10 +205,7 @@ export function AuthCallbackPage() {
         if (!accessToken) {
           throw new Error("Your setup session expired. Please sign in.");
         }
-        await requestJson("/auth/complete-registration", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
+        await ensureRegistrationProfiles(user, registration);
         await refreshProfile(accessToken);
         navigate("/dashboard", { replace: true });
       } catch (error) {

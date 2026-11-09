@@ -1,5 +1,6 @@
 import { lazy, Suspense } from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { demoMode } from "./config/demo";
 import { AuthProvider } from "./auth/AuthContext";
 import { ProtectedRoute } from "./auth/routeGuards";
 import {
@@ -13,6 +14,7 @@ import { LoginPage } from "./pages/LoginPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { PublicSitePage } from "./pages/PublicSitePage";
 import { RegistrationPage } from "./pages/RegistrationPage";
+import { DemoModePage } from "./pages/DemoModePage";
 const DonorDashboard = lazy(() =>
   import("./pages/dashboard/DonorDashboard").then((module) => ({
     default: module.DonorDashboard,
@@ -35,6 +37,23 @@ const AdminDashboard = lazy(() =>
 );
 
 export function App() {
+  if (demoMode) {
+    return (
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<PublicSitePage />} />
+          <Route path="/design-system" element={<DesignSystemPage />} />
+          <Route path="/demo" element={<DemoModePage />} />
+          <Route path="/login" element={<DemoModePage />} />
+          <Route path="/admin/login" element={<DemoModePage />} />
+          <Route path="/register" element={<DemoModePage />} />
+          <Route path="/dashboard/*" element={<DemoModePage />} />
+          <Route path="*" element={<DemoModePage />} />
+        </Routes>
+      </BrowserRouter>
+    );
+  }
+
   return (
     <AuthProvider>
       <BrowserRouter>
@@ -42,6 +61,7 @@ export function App() {
           <Route path="/" element={<PublicSitePage />} />
           <Route path="/design-system" element={<DesignSystemPage />} />
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/admin/login" element={<LoginPage />} />
           <Route path="/register" element={<RegistrationPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />

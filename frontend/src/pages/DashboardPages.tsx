@@ -10,8 +10,10 @@ export function DashboardPage({
 }: {
   kind: "donor" | "ngo" | "delivery_partner" | "admin" | "pending";
 }) {
-  const { profile, signOut } = useAuth();
+  const { profile, signOut, refreshProfile } = useAuth();
   const [logoutError, setLogoutError] = useState("");
+  const [statusError, setStatusError] = useState("");
+  const [checkingStatus, setCheckingStatus] = useState(false);
 
   const logout = async () => {
     setLogoutError("");
@@ -24,7 +26,35 @@ export function DashboardPage({
     }
   };
 
-  if (!profile) return null;
+  if (!profile) {
+    return (
+      <main className="min-h-screen bg-cream px-5 py-12 sm:px-8">
+        <section className="mx-auto max-w-2xl rounded-[2rem] bg-white p-7 shadow-soft sm:p-10">
+          <p className="ds-label text-forest">Account setup</p>
+          <h1 className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-charcoal">
+            We couldn’t load your profile.
+          </h1>
+          <p className="mt-4 text-sm leading-7 text-slate-600">
+            Your sign-in succeeded, but FoodBridge could not find a profile for
+            this account. Try signing out and back in. If this continues, check
+            that the Supabase auth and backend security migrations completed.
+          </p>
+          {logoutError ? (
+            <p className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert">
+              {logoutError}
+            </p>
+          ) : null}
+          <button
+            className="mt-6 min-h-11 rounded-2xl bg-forest px-5 text-sm font-semibold text-white"
+            onClick={() => void logout()}
+            type="button"
+          >
+            Sign out
+          </button>
+        </section>
+      </main>
+    );
+  }
   const isPending = kind === "pending";
   const isRejected = isPending && profile.verification_status === "rejected";
   const title = isRejected
@@ -63,7 +93,7 @@ export function DashboardPage({
             {isRejected
               ? "An administrator reviewed your application and did not approve it."
               : isPending
-              ? "Your registration is saved. An administrator must review and approve your organization or delivery partner account before dashboard access is enabled."
+              ? "This account is still marked as pending in the database. Once the self-activation migration has been applied, refresh your account status to continue."
               : kind === "admin"
                 ? "Review and approve NGO and delivery partner registrations. Administrator access is assigned only through a trusted process."
                 : "Your account is authenticated and your role was verified by the FoodBridge backend. Account tools will appear here as they are connected to real platform data."}
@@ -101,10 +131,35 @@ export function DashboardPage({
         ) : null}
 
         {isPending && !isRejected ? (
-          <p className="mt-7 text-sm leading-6 text-slate-600">
-            We’ll keep this page available while your application is reviewed.
-            You can safely sign out and return later.
-          </p>
+          <div className="mt-7">
+            <button
+              className="min-h-11 rounded-2xl bg-forest px-5 text-sm font-semibold text-white disabled:opacity-60"
+              disabled={checkingStatus}
+              onClick={() => {
+                setCheckingStatus(true);
+                setStatusError("");
+                void refreshProfile().then((updatedProfile) => {
+                  if (updatedProfile?.role === profile.role &&
+                    (updatedProfile.role === "delivery_partner_pending" ||
+                      (updatedProfile.role === "ngo" && !updatedProfile.is_approved))) {
+                    setStatusError("The account is still pending. Apply the self-activation migration in Supabase, then check again.");
+                  }
+                }).catch((error: unknown) => {
+                  setStatusError(
+                    error instanceof Error ? error.message : "Could not refresh account status.",
+                  );
+                }).finally(() => setCheckingStatus(false));
+              }}
+              type="button"
+            >
+              {checkingStatus ? "Checking…" : "Refresh account status"}
+            </button>
+            {statusError ? (
+              <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900" role="status">
+                {statusError}
+              </p>
+            ) : null}
+          </div>
         ) : null}
       </div>
     </main>

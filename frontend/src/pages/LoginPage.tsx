@@ -82,7 +82,7 @@ export function LoginPage() {
   return (
     <AuthLayout
       title="Welcome back."
-      description="Sign in to continue your work connecting surplus food with your community."
+      description="Sign in to continue your work connecting surplus food with your community. Admins use this same login and are sent to the admin dashboard automatically."
     >
       {state?.message && !message ? (
         <FormMessage message={state.message} tone="info" />

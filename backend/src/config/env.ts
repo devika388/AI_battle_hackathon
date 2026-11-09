@@ -11,9 +11,18 @@ function readPort(value: string | undefined): number {
   return port;
 }
 
+function readDemoMode(value: string | undefined): boolean {
+  const mode = value?.trim().toLowerCase();
+  if (mode === undefined || mode === "") return false;
+  if (mode === "true") return true;
+  if (mode === "false") return false;
+  throw new Error("DEMO_MODE must be true or false.");
+}
+
 export const env = {
   port: readPort(process.env.API_PORT),
   frontendOrigin: process.env.FRONTEND_ORIGIN ?? "http://localhost:5173",
+  demoMode: readDemoMode(process.env.DEMO_MODE),
   supabaseUrl: process.env.SUPABASE_URL,
   supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
 };

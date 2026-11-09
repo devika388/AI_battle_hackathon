@@ -4,6 +4,25 @@ import { HttpError } from "../utils/HttpError.js";
 
 export function failDatabase(error: unknown, message: string): never {
   console.error(message, error);
+  const code =
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof error.code === "string"
+      ? error.code
+      : undefined;
+  if (code === "42703") {
+    throw new HttpError(
+      "The Supabase database is missing a required column. Apply the pending FoodBridge migrations in timestamp order, then retry.",
+      500,
+    );
+  }
+  if (code === "PGRST202" || code === "42883") {
+    throw new HttpError(
+      "A required Supabase database function is missing. Apply the pending FoodBridge migrations in timestamp order, then retry.",
+      500,
+    );
+  }
   throw new HttpError("The request could not be completed. Please try again.", 500);
 }
 

@@ -132,6 +132,12 @@ export async function completeRegistration(
 
   if (error) {
     console.error("Trusted registration completion failed:", error);
+    if (error.code === "PGRST202") {
+      throw new HttpError(
+        "The registration database function is missing. Apply the FoodBridge Supabase migrations, then retry registration.",
+        503,
+      );
+    }
     throw new HttpError(
       "We couldn't finish setting up your profile. Please try again or contact support.",
       500,
@@ -142,20 +148,6 @@ export async function completeRegistration(
   if (!result?.profile_id || typeof result.role !== "string") {
     throw new HttpError(
       "Registration could not confirm your profile. Please contact support.",
-      500,
-    );
-  }
-
-  const donorType =
-    registration.role === "donor" ? registration.donor_type : undefined;
-  const { error: metadataError } = await supabase.auth.admin.updateUserById(
-    userId,
-    { user_metadata: donorType ? { donor_type: donorType } : {} },
-  );
-  if (metadataError) {
-    console.error("Could not clear temporary registration metadata:", metadataError);
-    throw new HttpError(
-      "Your profile was created, but account setup needs one more retry. Please sign in and try again.",
       500,
     );
   }

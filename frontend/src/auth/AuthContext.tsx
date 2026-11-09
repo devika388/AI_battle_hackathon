@@ -9,6 +9,7 @@ import {
 } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { ApiError, requestJson } from "../services/apiClient";
+import { ensureRegistrationProfiles } from "../services/registrationProfiles";
 import { getSupabaseClient } from "../services/supabaseClient";
 import type {
   AuthContextValue,
@@ -18,6 +19,20 @@ import type {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+async function withTimeout<T>(operation: PromiseLike<T>, message: string): Promise<T> {
+  let timeoutId: number | undefined;
+  try {
+    return await Promise.race([
+      Promise.resolve(operation),
+      new Promise<never>((_, reject) => {
+        timeoutId = window.setTimeout(() => reject(new Error(message)), 10_000);
+      }),
+    ]);
+  } finally {
+    if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<AuthProfile | null>(null);
@@ -25,24 +40,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [configError, setConfigError] = useState<string | null>(null);
   const [sessionNotice, setSessionNotice] = useState<string | null>(null);
 
-  const loadProfile = useCallback(async (
-    accessToken: string,
-    registration?: unknown,
-  ) => {
-    const response = await requestJson<AuthProfileResponse>("/auth/me", {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    if (!response.profile && registration) {
-      const completed = await requestJson<{ profile: AuthProfile }>(
-        "/auth/complete-registration",
-        {
-          method: "POST",
-          headers: { Authorization: `Bearer ${accessToken}` },
-        },
-      );
-      setProfile(completed.profile);
-      return completed.profile;
-    }
+  const loadProfile = useCallback(async (accessToken: string) => {
+    const response = await withTimeout(
+      requestJson<AuthProfileResponse>("/auth/me", {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }),
+      "The account service did not respond. Check that the backend is running, then try again.",
+    );
     setProfile(response.profile);
     return response.profile;
   }, []);
@@ -52,17 +56,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const supabase = getSupabaseClient();
       let token = accessToken;
       let registrationMetadata = registration;
-      if (!token) {
+      let authenticatedUser: User | undefined;
+      if (!token || registrationMetadata) {
         const { data, error } = await supabase.auth.getSession();
         if (error) throw error;
-        token = data.session?.access_token;
-        registrationMetadata ??= data.session?.user.user_metadata?.registration;
+        if (!token) token = data.session?.access_token;
+        authenticatedUser = data.session?.user;
+        registrationMetadata ??= authenticatedUser?.user_metadata?.registration;
       }
       if (!token) {
         setProfile(null);
         return null;
       }
-      return loadProfile(token, registrationMetadata);
+      if (registrationMetadata && authenticatedUser) {
+        await ensureRegistrationProfiles(authenticatedUser, registrationMetadata);
+      }
+      const currentProfile = await loadProfile(token);
+      if (currentProfile) setSessionNotice(null);
+      return currentProfile;
     },
     [loadProfile],
   );
@@ -101,7 +112,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       try {
-        const { data, error } = await supabase.auth.getUser(session.access_token);
+        const { data, error } = await withTimeout(
+          supabase.auth.getUser(session.access_token),
+          "Supabase did not respond while checking your session. Check your connection and Supabase configuration, then sign in again.",
+        );
         if (!active || currentGeneration !== generation) return;
         if (error || !data.user) {
           setUser(null);
@@ -115,10 +129,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(data.user);
         setSessionNotice(null);
         try {
-          const currentProfile = await loadProfile(
-            session.access_token,
+          await ensureRegistrationProfiles(
+            data.user,
             data.user.user_metadata?.registration,
           );
+          const currentProfile = await loadProfile(session.access_token);
           if (!currentProfile) {
             setSessionNotice("Your account profile is not set up. Retry profile setup or contact support.");
           }
@@ -144,11 +159,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             );
           }
         }
-      } catch {
+      } catch (error) {
         if (!active || currentGeneration !== generation) return;
         setUser(null);
         setProfile(null);
-        setSessionNotice("Your session expired. Please sign in again.");
+        setSessionNotice(
+          error instanceof Error
+            ? error.message
+            : "Your session could not be verified. Please sign in again.",
+        );
         await supabase.auth.signOut();
       } finally {
         if (active && currentGeneration === generation) setReady(true);

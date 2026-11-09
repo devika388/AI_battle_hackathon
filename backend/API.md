@@ -6,6 +6,11 @@ the API still validates every access token. Roles are
 loaded from `profiles` on the server; request bodies and user metadata never
 grant a role. Suspended accounts are denied.
 
+When `DEMO_MODE=true`, only `GET /health` and `GET /demo` are
+available. They return health and demo status only; all account and data
+endpoints, including writes, are disabled. Set `DEMO_MODE=false` to enable the
+authenticated API described below.
+
 Paginated list routes accept `limit` (1–100, default 50) and `offset`
 (default 0). IDs in paths must be UUIDs. JSON request bodies are validated;
 errors use `{ "error": "..." }`.

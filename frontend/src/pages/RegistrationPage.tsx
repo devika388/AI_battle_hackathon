@@ -3,8 +3,8 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { AuthLayout, FormMessage, FormSubmit } from "../components/auth/AuthLayout";
 import { InputField, SelectField, type SelectOption } from "../components/ui";
-import { ApiError, requestJson } from "../services/apiClient";
 import { getSupabaseClient } from "../services/supabaseClient";
+import { ensureRegistrationProfiles } from "../services/registrationProfiles";
 
 type PublicRole = "donor" | "ngo" | "delivery_partner";
 
@@ -103,29 +103,31 @@ export function RegistrationPage() {
     }
 
     setLoading(true);
+    let accountCreated = false;
     try {
       const { data: result, error } = await getSupabaseClient().auth.signUp({
         email,
         password,
-        options: { data: { registration } },
+        options: {
+          data: { registration },
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
+        },
       });
       if (error) {
         setMessage(
           /user already registered/i.test(error.message)
             ? "This email already has an account. Sign in instead, or use Forgot password if you don't remember the password."
-            : error.message,
+            : /database error saving new user/i.test(error.message)
+            ? "Supabase rejected signup before profile setup. Check Supabase Dashboard → Logs → Postgres Logs for the underlying database error. Do not remove unrelated Auth triggers; the failing trigger and its function need to be identified first."
+              : error.message,
         );
         return;
       }
 
       if (result.session) {
-        await requestJson<{ profile: { role: string } }>(
-          "/auth/complete-registration",
-          {
-            method: "POST",
-            headers: { Authorization: `Bearer ${result.session.access_token}` },
-          },
-        );
+        if (!result.user) throw new Error("Supabase did not return the new account.");
+        accountCreated = true;
+        await ensureRegistrationProfiles(result.user, registration);
         await refreshProfile(
           result.session.access_token,
           result.user?.user_metadata?.registration,
@@ -139,8 +141,8 @@ export function RegistrationPage() {
       );
     } catch (error) {
       setMessage(
-        error instanceof ApiError
-          ? error.message
+        accountCreated
+          ? `Your account was created, but profile setup or loading failed. Don't register again; try signing in instead. ${error instanceof Error ? error.message : ""}`
           : error instanceof Error
             ? error.message
             : "We couldn't create your account. Please try again.",

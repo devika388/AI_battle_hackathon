@@ -29,6 +29,19 @@ The development command starts both applications:
 The frontend uses the Vite development proxy for `/api` requests. API settings
 are centralized in `frontend/src/config/api.ts`.
 
+## Temporary read-only demo mode
+
+Demo mode is optional with `VITE_DEMO_MODE=true` and `DEMO_MODE=true`.
+It removes the login and registration screens and opens a sample dashboard at
+`/demo`. The backend exposes only `/api/health` and the read-only `/api/demo`
+status endpoint; all account and data APIs are disabled. Sample dashboard data
+is local demo content and is never written to Supabase. Both flags default to
+`false`, so normal Auth mode is used unless demo mode is explicitly enabled.
+
+To use account-based functionality, leave both flags unset or set them to
+`false` and restart the frontend and backend. Keep the Supabase Auth setup below
+for that mode. Do not apply database policies to make public writes possible.
+
 The root page is the FoodBridge public website. The design system and reusable
 component preview are available at `/design-system`. Reusable UI components
 are exported from `frontend/src/components/ui`; visual tokens, field styles,
@@ -58,7 +71,9 @@ are documented in [`backend/API.md`](./backend/API.md).
 |---|---|---|
 | `API_PORT` | Express listening port | `3001` |
 | `FRONTEND_ORIGIN` | Allowed browser origin for API requests | `http://localhost:5173` |
+| `DEMO_MODE` | Serve only public read-only demo API endpoints | `false` |
 | `VITE_API_BASE_URL` | API prefix used by the frontend and Vite proxy | `/api` |
+| `VITE_DEMO_MODE` | Show the no-login sample dashboard | `false` |
 | `VITE_PUBLIC_CONTACT_EMAIL` | Address used to open contact-form email drafts | Not configured |
 | `VITE_SUPABASE_URL` | Supabase project URL used in the browser | Required |
 | `VITE_SUPABASE_ANON_KEY` | Supabase anon/publishable key used in the browser | Required |
@@ -69,7 +84,7 @@ Keep `.env` local; it is ignored by Git. Never put private credentials or the
 Supabase service-role key in frontend variables. The service-role key bypasses
 RLS and must only be available to the backend.
 
-### Supabase authentication setup
+### Supabase authentication setup (when demo mode is disabled)
 
 1. Copy `.env.example` to `.env`, then set `VITE_SUPABASE_URL` and
    `SUPABASE_URL` to the project URL, `VITE_SUPABASE_ANON_KEY` to the
@@ -84,20 +99,24 @@ RLS and must only be available to the backend.
    13 tables or their columns. It adds a service-role-only, serialized,
    idempotent profile completion function and enables RLS on `profiles`,
    `donor_profiles`, `ngo_profiles`, and `partner_profiles`. Restrictive
-   policies prevent direct client profile writes/role changes and limit reads
-   to the owning account without deleting existing policies. SQL files in this
-   repository are not active until explicitly run in Supabase.
+   policies initially prevent direct client profile writes and limit reads to
+   the owning account without deleting existing policies. Step 9 adds narrowly
+   scoped self-registration inserts. SQL files in this repository are not
+   active until explicitly run in Supabase.
 4. Apply [`supabase/migrations/20261107210000_foodbridge_backend_security.sql`](./supabase/migrations/20261107210000_foodbridge_backend_security.sql)
    after confirming the read-only inspection output. It adds suspension state,
-   backend-only transaction functions, and restrictive RLS/storage policies
-   without dropping existing tables or policies. No policy should be treated
-   as active until this migration has succeeded in Supabase.
+   backend-only transaction functions, and restrictive policies on the
+   application tables. It intentionally does not alter Supabase-managed
+   `storage.objects` or bucket settings, which require separate Storage
+   configuration. Existing storage policies and buckets are left untouched.
+   No database policy should be treated as active until this migration has
+   succeeded in Supabase.
 5. To temporarily skip signup email verification, open Supabase Dashboard →
    Authentication → Providers → Email and turn off **Confirm email**. Keep
    email/password sign-in enabled. The backend still requires a valid Supabase
    access token and enforces account roles and permissions. Allow the app origin
-   and `/reset-password` in the Supabase redirect URL configuration for local
-   and deployed environments.
+   and `/auth/callback` and `/reset-password` in the Supabase redirect URL
+   configuration for local and deployed environments.
 6. Apply [`supabase/migrations/20261107222000_foodbridge_dashboard_fields.sql`](./supabase/migrations/20261107222000_foodbridge_dashboard_fields.sql)
    to add the donor donation details and NGO matching preferences required by
    the dashboards. This migration adds columns and trusted transactional
@@ -105,26 +124,54 @@ RLS and must only be available to the backend.
 7. Apply [`supabase/migrations/20261107234000_admin_delivery_dashboard.sql`](./supabase/migrations/20261107234000_admin_delivery_dashboard.sql)
    to add review outcomes, delivery proof details, and persisted route
    checkpoints for the partner/admin dashboards.
-8. Apply [`supabase/migrations/20261108230000_foodbridge_self_activation.sql`](./supabase/migrations/20261108230000_foodbridge_self_activation.sql)
-   to activate NGO and delivery partner accounts at registration. Existing
-   pending accounts are activated; rejected accounts remain rejected. Admin
-   accounts still cannot be created through public registration.
-9. Start the frontend and backend with `npm run dev`.
+8. Apply [`supabase/migrations/20261108130000_foodbridge_rescue_passport.sql`](./supabase/migrations/20261108130000_foodbridge_rescue_passport.sql)
+   to add rescue outcome and escalation fields and donation timeline metadata.
+9. Apply [`supabase/migrations/20261108140000_foodbridge_engagement_location.sql`](./supabase/migrations/20261108140000_foodbridge_engagement_location.sql)
+   after the rescue-passport migration to add location and notification event
+   fields plus the impact and rescue report functions used by the dashboards.
+10. Apply [`supabase/migrations/20261108230000_foodbridge_self_activation.sql`](./supabase/migrations/20261108230000_foodbridge_self_activation.sql)
+   to activate NGO and delivery partner accounts at registration and upgrade
+   existing pending accounts. Rejected accounts remain rejected. Admin accounts
+   still cannot be created through public registration.
+11. Apply [`supabase/migrations/20261109120000_foodbridge_browser_profile_writes.sql`](./supabase/migrations/20261109120000_foodbridge_browser_profile_writes.sql)
+   to allow authenticated users to insert only their own registration profile
+   and matching role-specific row through restrictive RLS policies. It does not
+   create triggers on Supabase-managed Auth tables. Users without a profile or
+   saved registration details must register again or have details entered by an
+   administrator.
+12. Apply [`supabase/migrations/20261109123000_foodbridge_remove_signup_profile_trigger.sql`](./supabase/migrations/20261109123000_foodbridge_remove_signup_profile_trigger.sql)
+    to remove the obsolete FoodBridge signup trigger if it was installed during
+    earlier setup attempts. Run it from the Supabase SQL Editor with a database
+    owner account; it does not change Supabase-managed Auth users or credentials.
+13. Apply [`supabase/migrations/20261109131000_foodbridge_unique_ngo_profile_owner.sql`](./supabase/migrations/20261109131000_foodbridge_unique_ngo_profile_owner.sql)
+    to prevent duplicate NGO profile rows for one account.
+14. Start the frontend and backend with `npm run dev`.
 
 The registration handler uses the inspected schema: `profiles.id` is the auth
 user UUID; contact details go in `profiles`; donor, NGO, and vehicle details go
 in their existing subtype tables. The requested donor type has no column in the
 existing schema, so it is kept as non-authoritative Supabase user metadata.
-Registration metadata is validated server-side; only the backend's service-role
-RPC writes profile roles. Existing profile rows are returned unchanged rather
-than duplicated.
+Registration metadata is stored with the Supabase Auth user and copied by the
+authenticated browser into the role-specific tables under RLS policies that
+bind inserts to the signed-in user and saved registration role. Passwords and
+authentication credentials remain only in Supabase Auth. Authorization
+continues to use the role stored in `profiles`, never user metadata.
 
 Public registration only permits donor, NGO, and delivery partner roles. NGOs
 and delivery partners become active immediately after registration; admins can
 still suspend accounts through the protected dashboard. To provision an
-initial admin, create the Auth user in Supabase, then assign `admin`
-to that user's matching `profiles.id` using the trusted Supabase SQL editor.
-There is intentionally no public admin signup or role-change endpoint. Email
+initial admin, create the user in Supabase Auth, then run this in the trusted
+Supabase SQL editor with that Auth user's UUID and email:
+
+```sql
+insert into public.profiles (id, full_name, email, phone, role)
+values ('AUTH_USER_UUID', 'Administrator', 'ADMIN_EMAIL', null, 'admin')
+on conflict (id) do update set role = 'admin';
+```
+
+Admins sign in at `/admin/login` or use the shared `/login` form; their database
+role automatically routes them to the admin dashboard. There is intentionally
+no public admin signup or role-change endpoint. Email
 verification is disabled in the application flow for now; re-enable **Confirm
 email** in Supabase to restore its signup confirmation requirement.
 

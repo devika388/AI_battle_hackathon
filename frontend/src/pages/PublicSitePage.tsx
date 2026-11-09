@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
+import { demoMode } from "../config/demo";
 import { FoodRescueIllustration } from "../components/FoodRescueIllustration";
 import {
   Badge,
@@ -147,11 +148,19 @@ export function PublicSitePage() {
             >
               Login
             </Link>
+            {!demoMode ? (
+              <Link
+                className="inline-flex min-h-10 items-center rounded-full px-4 text-sm font-semibold text-forest hover:bg-forest/5"
+                to="/admin/login"
+              >
+                Admin login
+              </Link>
+            ) : null}
             <Link
               className="inline-flex min-h-11 items-center justify-center rounded-full bg-forest px-5 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-[#294b39] hover:shadow-md"
               to="/register"
             >
-              Get Started
+              {demoMode ? "Explore Demo" : "Get Started"}
             </Link>
           </>
         }
@@ -650,6 +659,11 @@ export function PublicSitePage() {
             <Link className="text-sm text-slate-600 hover:text-forest" to="/login">
               Login
             </Link>
+            {!demoMode ? (
+              <Link className="text-sm text-slate-600 hover:text-forest" to="/admin/login">
+                Admin login
+              </Link>
+            ) : null}
           </nav>
           <p className="border-t border-charcoal/8 pt-5 text-xs text-slate-400 md:col-span-2">
             FoodBridge · Good food deserves a second chance.

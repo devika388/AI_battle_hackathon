@@ -24,7 +24,7 @@ export async function requestJson<T>(
   });
 
   if (!response.ok) {
-    let message = `The API request failed with status ${response.status}.`;
+    let message = `The API request to ${path} failed with status ${response.status}.`;
 
     try {
       const body = (await response.json()) as ApiErrorResponse;
