@@ -145,7 +145,10 @@ RLS and must only be available to the backend.
     owner account; it does not change Supabase-managed Auth users or credentials.
 13. Apply [`supabase/migrations/20261109131000_foodbridge_unique_ngo_profile_owner.sql`](./supabase/migrations/20261109131000_foodbridge_unique_ngo_profile_owner.sql)
     to prevent duplicate NGO profile rows for one account.
-14. Start the frontend and backend with `npm run dev`.
+14. Apply [`supabase/migrations/20261109140000_foodbridge_fix_accept_donation_status.sql`](./supabase/migrations/20261109140000_foodbridge_fix_accept_donation_status.sql)
+    to fix the PostgreSQL return-type mismatch in the NGO donation-acceptance
+    function.
+15. Start the frontend and backend with `npm run dev`.
 
 The registration handler uses the inspected schema: `profiles.id` is the auth
 user UUID; contact details go in `profiles`; donor, NGO, and vehicle details go

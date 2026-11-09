@@ -71,9 +71,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (registrationMetadata && authenticatedUser) {
         await ensureRegistrationProfiles(authenticatedUser, registrationMetadata);
       }
-      const currentProfile = await loadProfile(token);
-      if (currentProfile) setSessionNotice(null);
-      return currentProfile;
+      try {
+        const currentProfile = await loadProfile(token);
+        if (currentProfile) setSessionNotice(null);
+        return currentProfile;
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 401) {
+          setUser(null);
+          setProfile(null);
+          setSessionNotice("Your session expired. Please sign in again.");
+          await supabase.auth.signOut();
+        }
+        throw error;
+      }
     },
     [loadProfile],
   );
